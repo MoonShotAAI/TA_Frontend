@@ -9,7 +9,6 @@ import {
   FileCheck2,
   ListTree,
   FolderKanban,
-  LogOut,
   UploadCloud,
 } from 'lucide-react';
 
@@ -128,15 +127,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </div>
             <div className="hidden sm:block text-left leading-tight">
               <div className="text-xs font-semibold text-white">Prof. Jane Doe</div>
-              <div className="text-[11px] text-slate-400 font-medium">Computer Science</div>
+              <div className="text-[11px] text-slate-400 font-medium">{currentCourse}</div>
             </div>
-            <Link
-              href="/login"
-              title="Sign Out / Switch Account"
-              className="text-slate-400 hover:text-rose-400 p-1.5 rounded-md hover:bg-white/5 transition-colors ml-1"
-            >
-              <LogOut className="w-4 h-4" />
-            </Link>
           </div>
         </div>
       </div>
