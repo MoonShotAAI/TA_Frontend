@@ -76,12 +76,9 @@ export const SplitPaneGradingView: React.FC<SplitPaneGradingViewProps> = ({
     if (newStatus === 'MET') {
       newScore = item.maxScore;
       newPenalty = 0;
-    } else if (newStatus === 'PARTIALLY_MET') {
-      newScore = Math.round(item.maxScore * 0.7);
-      newPenalty = item.maxScore - newScore;
     } else {
-      newScore = Math.round(item.maxScore * 0.5);
-      newPenalty = item.maxScore - newScore;
+      newScore = 0;
+      newPenalty = item.maxScore;
     }
 
     onUpdateRubricItem({
@@ -95,9 +92,7 @@ export const SplitPaneGradingView: React.FC<SplitPaneGradingViewProps> = ({
 
   const handleScoreChange = (item: RubricEvidence, newScore: number) => {
     const clamped = Math.max(0, Math.min(item.maxScore, newScore));
-    let derivedStatus: GradingStatus = 'MET';
-    if (clamped < item.maxScore && clamped > 0) derivedStatus = 'PARTIALLY_MET';
-    if (clamped <= item.maxScore * 0.5) derivedStatus = 'NOT_MET';
+    const derivedStatus: GradingStatus = clamped === item.maxScore ? 'MET' : 'NOT_MET';
 
     onUpdateRubricItem({
       ...item,
@@ -460,7 +455,7 @@ export const SplitPaneGradingView: React.FC<SplitPaneGradingViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Required: Status toggle pills: [Met], [Partially Met], [Not Met] */}
+                  {/* Status toggle pills: [충족 Met], [미충족 Not Met] */}
                   <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                     <span className="text-[11px] font-semibold text-slate-700">Criterion Status:</span>
                     <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs font-medium">
@@ -469,40 +464,27 @@ export const SplitPaneGradingView: React.FC<SplitPaneGradingViewProps> = ({
                           e.stopPropagation();
                           handleStatusChange(item, 'MET');
                         }}
-                        className={`px-2.5 py-1 rounded-md transition-all font-semibold flex items-center gap-1 ${
+                        className={`px-3 py-1 rounded-md transition-all font-semibold flex items-center gap-1 ${
                           item.status === 'MET'
                             ? 'bg-emerald-600 text-white shadow-xs'
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
                         <Check className="w-3 h-3" />
-                        Met
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleStatusChange(item, 'PARTIALLY_MET');
-                        }}
-                        className={`px-2.5 py-1 rounded-md transition-all font-semibold ${
-                          item.status === 'PARTIALLY_MET'
-                            ? 'bg-amber-500 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        Partially Met
+                        충족 (Met &mdash; {item.maxScore} pts)
                       </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStatusChange(item, 'NOT_MET');
                         }}
-                        className={`px-2.5 py-1 rounded-md transition-all font-semibold ${
+                        className={`px-3 py-1 rounded-md transition-all font-semibold flex items-center gap-1 ${
                           item.status === 'NOT_MET'
                             ? 'bg-rose-600 text-white shadow-xs'
                             : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
-                        Not Met
+                        미충족 (Not Met &mdash; 0 pts)
                       </button>
                     </div>
                   </div>

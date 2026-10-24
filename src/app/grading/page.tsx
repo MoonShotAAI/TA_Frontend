@@ -36,7 +36,7 @@ interface RubricCheckItem {
   description: string;
   assignedScore: number;
   maxScore: number;
-  status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET';
+  status: 'MET' | 'NOT_MET';
   evidenceQuote: string;
   rationale: string;
   isExpanded: boolean;
@@ -51,13 +51,13 @@ const INITIAL_RUBRIC_CHECKS: RubricCheckItem[] = [
     title: 'Analysis and Interpretation of Results',
     description:
       'Accurately interprets results, explains their significance, and provides reasonable discussion of findings.',
-    assignedScore: 25,
+    assignedScore: 30,
     maxScore: 30,
-    status: 'PARTIALLY_MET',
+    status: 'MET',
     evidenceQuote:
       'This improvement can be attributed to the use of word embeddings, which capture semantic relationships between words and help the model generalize better to unseen data.',
     rationale:
-      'The submission correctly interprets the performance improvement and provides a reasonable explanation for why word embeddings help, showing good understanding of the results. Additional discussion of limitations (e.g., error analysis) would strengthen this section.',
+      'The submission accurately interprets the performance improvement and provides a sound explanation for generalization gains. Meets full rubric requirements.',
     isExpanded: true,
   },
   {
@@ -65,13 +65,13 @@ const INITIAL_RUBRIC_CHECKS: RubricCheckItem[] = [
     number: 2,
     title: 'Technical Implementation',
     description: 'Correctly implements required methods and follows best practices.',
-    assignedScore: 20,
+    assignedScore: 0,
     maxScore: 25,
-    status: 'PARTIALLY_MET',
+    status: 'NOT_MET',
     evidenceQuote:
       'model = Sequential([Embedding(vocab_size, 128), LSTM(64), Dense(1, activation="sigmoid")])',
     rationale:
-      'Core neural architecture implemented correctly. However, missing early-stopping callback and dropout regularizer per assignment specification 2.4.',
+      'Missing early-stopping callback and dropout regularizer strictly specified in Section 2.4. Criterion marked as Not Met (0 pts).',
     isExpanded: false,
   },
   {
@@ -79,13 +79,13 @@ const INITIAL_RUBRIC_CHECKS: RubricCheckItem[] = [
     number: 3,
     title: 'Use of Visualizations',
     description: 'Includes appropriate visualizations with clear labels and captions.',
-    assignedScore: 15,
+    assignedScore: 20,
     maxScore: 20,
     status: 'MET',
     evidenceQuote:
       'Figure 2: Confusion matrix for binary sentiment classification on test partition (N=1,408).',
     rationale:
-      'Clean confusion matrix plot with labeled axis ticks and percentage annotations in each quadrant.',
+      'Clean confusion matrix plot with labeled axis ticks and percentage annotations in each quadrant. Meets full criteria.',
     isExpanded: false,
   },
   {
@@ -137,14 +137,7 @@ export default function EvaluateAndCitePage() {
       prev.map((item) => {
         if (item.id === id) {
           const clamped = Math.max(0, Math.min(item.maxScore, isNaN(rawScore) ? 0 : rawScore));
-          let status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET' = item.status;
-          if (clamped === item.maxScore) {
-            status = 'MET';
-          } else if (clamped <= Math.round(item.maxScore * 0.5)) {
-            status = 'NOT_MET';
-          } else {
-            status = 'PARTIALLY_MET';
-          }
+          const status: 'MET' | 'NOT_MET' = clamped === item.maxScore ? 'MET' : 'NOT_MET';
           return {
             ...item,
             assignedScore: clamped,
@@ -168,13 +161,11 @@ export default function EvaluateAndCitePage() {
     showToast("Reset all criteria back to AI-suggested scores.");
   };
 
-  const setStatus = (id: string, status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET') => {
+  const setStatus = (id: string, status: 'MET' | 'NOT_MET') => {
     setRubricItems((prev) =>
       prev.map((item) => {
         if (item.id === id) {
-          let newScore = item.maxScore;
-          if (status === 'PARTIALLY_MET') newScore = Math.round(item.maxScore * 0.8);
-          if (status === 'NOT_MET') newScore = Math.round(item.maxScore * 0.5);
+          const newScore = status === 'MET' ? item.maxScore : 0;
           return { ...item, status, assignedScore: newScore, isCustomAdjusted: true };
         }
         return item;
@@ -579,44 +570,35 @@ export default function EvaluateAndCitePage() {
                     </div>
                   </div>
 
-                  {/* Expanded Body: Met/Partially/Not Met + Direct Slider + Cited Evidence + Rationale + TA Notes */}
+                  {/* Expanded Body: Met/Not Met + Direct Slider + Cited Evidence + Rationale + TA Notes */}
                   {item.isExpanded && (
                     <div className="px-5 pb-5 pt-1 space-y-4 border-t border-slate-100">
                       
-                      {/* Met / Partially Met / Not Met Toggle Buttons */}
-                      <div className="grid grid-cols-3 gap-2 pt-2">
+                      {/* 충족 (Met - Full) / 미충족 (Not Met - 0 pts) Toggle Buttons */}
+                      <div className="grid grid-cols-2 gap-2.5 pt-2">
                         <button
                           type="button"
                           onClick={() => setStatus(item.id, 'MET')}
-                          className={`py-2 rounded-xl text-xs font-bold transition-all border ${
+                          className={`py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
                             item.status === 'MET'
                               ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                               : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
-                          Met ({item.maxScore} pts)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setStatus(item.id, 'PARTIALLY_MET')}
-                          className={`py-2 rounded-xl text-xs font-bold transition-all border ${
-                            item.status === 'PARTIALLY_MET'
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          Partially Met ({Math.round(item.maxScore * 0.8)} pts)
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>충족 (Met &mdash; {item.maxScore} pts)</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setStatus(item.id, 'NOT_MET')}
-                          className={`py-2 rounded-xl text-xs font-bold transition-all border ${
+                          className={`py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
                             item.status === 'NOT_MET'
                               ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
                               : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
-                          Not Met ({Math.round(item.maxScore * 0.5)} pts)
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>미충족 (Not Met &mdash; 0 pts)</span>
                         </button>
                       </div>
 
@@ -637,30 +619,16 @@ export default function EvaluateAndCitePage() {
                             <button
                               type="button"
                               onClick={() => handleScoreChange(item.id, item.maxScore)}
-                              className="px-2 py-0.5 font-bold rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors"
+                              className="px-2.5 py-0.5 font-bold rounded bg-white border border-slate-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300 transition-colors"
                             >
-                              100%
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleScoreChange(item.id, Math.round(item.maxScore * 0.8))}
-                              className="px-2 py-0.5 font-bold rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors"
-                            >
-                              80%
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleScoreChange(item.id, Math.round(item.maxScore * 0.5))}
-                              className="px-2 py-0.5 font-bold rounded bg-white border border-slate-200 text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition-colors"
-                            >
-                              50%
+                              충족 ({item.maxScore} pts)
                             </button>
                             <button
                               type="button"
                               onClick={() => handleScoreChange(item.id, 0)}
-                              className="px-2 py-0.5 font-bold rounded bg-white border border-slate-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition-colors"
+                              className="px-2.5 py-0.5 font-bold rounded bg-white border border-slate-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition-colors"
                             >
-                              0 pts
+                              미충족 (0 pts)
                             </button>
                           </div>
                         </div>

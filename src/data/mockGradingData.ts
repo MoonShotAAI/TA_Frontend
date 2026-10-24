@@ -36,7 +36,7 @@ export const initialRubricItems: RubricEvidence[] = [
     criterionTitle: 'Model Formulation & Algorithmic Selection',
     category: 'Methodology & Modeling',
     maxScore: 10,
-    assignedScore: 5,
+    assignedScore: 0,
     status: 'NOT_MET',
     confidence: 'HIGH',
     confidencePercent: 96,
@@ -47,7 +47,7 @@ export const initialRubricItems: RubricEvidence[] = [
     aiRationale:
       'Violates assignment specification Section 3.1: "Binary target variables (Churn = 0/1) must be modeled using probabilistic classification techniques (e.g., Logistic Regression, SVM, XGBoost) rather than unconstrained continuous estimators like standard OLS linear regression which yields uncalibrated probabilities outside [0, 1]."',
     deductionReason: 'Linear regression applied to discrete binary target without log-odds transformation.',
-    penaltyPoints: 5,
+    penaltyPoints: 10,
     highlightVariant: 'yellow',
     taReviewed: false,
     taFeedbackNotes: '',
@@ -57,8 +57,8 @@ export const initialRubricItems: RubricEvidence[] = [
     criterionTitle: 'Train / Validation / Test Split Integrity & Reporting',
     category: 'Evaluation Protocol',
     maxScore: 10,
-    assignedScore: 7,
-    status: 'PARTIALLY_MET',
+    assignedScore: 0,
+    status: 'NOT_MET',
     confidence: 'LOW_TA_REVIEW',
     confidencePercent: 64,
     evidenceQuote:
@@ -66,9 +66,9 @@ export const initialRubricItems: RubricEvidence[] = [
     evidenceExplanation:
       'Evidence: Training score is documented, but explicit held-out validation metric curves or test set metrics are omitted in Table 2.',
     aiRationale:
-      'The rubric stipulates a minimum deduction of 2.0 to 4.0 points if validation metrics are absent. Because the student provided 5-fold CV mean training score (89.4%) but skipped held-out reporting, the system scored 7/10 (-3 pts), but recommends human TA discretion to verify if raw script outputs were attached in Appendix B.',
+      'The rubric requires complete validation metrics. Because held-out reporting was omitted, criterion is marked Not Met (0/10 pts). TA review recommended to verify raw script logs in Appendix.',
     deductionReason: 'Missing formal held-out validation / test set performance metrics table.',
-    penaltyPoints: 3,
+    penaltyPoints: 10,
     highlightVariant: 'blue',
     taReviewed: false,
     taFeedbackNotes: '',
@@ -98,7 +98,7 @@ export const initialRubricItems: RubricEvidence[] = [
     criterionTitle: 'Logical Flow & Scientific Reasoning',
     category: 'Synthesis & Argumentation',
     maxScore: 10,
-    assignedScore: 9,
+    assignedScore: 10,
     status: 'MET',
     confidence: 'HIGH',
     confidencePercent: 91,
@@ -108,7 +108,7 @@ export const initialRubricItems: RubricEvidence[] = [
       'Evidence: Explanations sequentially link exploratory coefficient findings directly to customer behavioral conclusions.',
     aiRationale:
       'Sound inductive argument structure connecting quantitative coefficients to operational recommendations.',
-    penaltyPoints: 1,
+    penaltyPoints: 0,
     highlightVariant: 'purple',
     taReviewed: false,
     taFeedbackNotes: '',

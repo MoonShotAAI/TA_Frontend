@@ -1,4 +1,4 @@
-export type GradingStatus = 'MET' | 'PARTIALLY_MET' | 'NOT_MET';
+export type GradingStatus = 'MET' | 'NOT_MET';
 export type ConfidenceLevel = 'HIGH' | 'LOW_TA_REVIEW' | 'MEDIUM';
 
 export interface RubricEvidence {
