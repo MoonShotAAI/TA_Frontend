@@ -73,7 +73,7 @@ export default function ConfidenceQueuePage() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
       {/* Top Header matching dark navy aesthetics */}
-      <TopHeader />
+      <TopHeader activeSection="grade" />
 
       {/* 4-Step Progress Bar matching mockup screenshot 4 */}
       <StepProgressBar

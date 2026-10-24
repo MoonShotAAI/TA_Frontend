@@ -51,7 +51,7 @@ export default function BatchesDashboardPage() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
       {/* Top Header matching dark navy aesthetics */}
-      <TopHeader />
+      <TopHeader activeSection="batches" />
 
       <main className="flex-1 max-w-[1700px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         

@@ -28,10 +28,12 @@ import {
   Layers,
   ChevronRight,
   Trash2,
+  Scale,
 } from 'lucide-react';
 import { TopHeader } from '@/components/TopHeader';
 import { StepProgressBar, GradingStep } from '@/components/StepProgressBar';
 import { Toast } from '@/components/Toast';
+import { Rubric5x5TestModal } from '@/components/Rubric5x5TestModal';
 
 interface UploadedFileItem {
   id: string;
@@ -138,6 +140,7 @@ function UploadContent() {
   const [rubricInputTab, setRubricInputTab] = useState<'paste' | 'upload' | 'pdf'>('paste');
   const [rubricText, setRubricText] = useState(DEFAULT_RUBRIC_TEXT);
   const [isParsingRubric, setIsParsingRubric] = useState(false);
+  const [is5x5ModalOpen, setIs5x5ModalOpen] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -183,7 +186,7 @@ function UploadContent() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
       {/* Top Header matching dark navy aesthetics */}
-      <TopHeader />
+      <TopHeader activeSection={currentStep === 2 ? 'rubrics' : 'upload'} />
 
       {/* 4-Step Progress Bar matching mockup */}
       <StepProgressBar
@@ -585,12 +588,23 @@ function UploadContent() {
                       We&apos;ve converted your rubric into clear, gradable checklist criteria.
                     </p>
                   </div>
-                  <button
-                    onClick={() => showToast("Checklist editor mode enabled.")}
-                    className="px-3 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
-                  >
-                    Edit Checklist
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIs5x5ModalOpen(true)}
+                      className="px-3 py-1 rounded-lg border border-indigo-200 bg-indigo-50/80 text-xs font-bold text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5 transition-colors shadow-2xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Test Rubric (5&times;5)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => showToast("Checklist editor mode enabled.")}
+                      className="px-3 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                    >
+                      Edit Checklist
+                    </button>
+                  </div>
                 </div>
 
                 {/* Criteria items list matching mockup */}
@@ -730,12 +744,32 @@ function UploadContent() {
                 
                 {/* Rubric Consistency Health Card */}
                 <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 space-y-3.5">
-                  <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                    <Sparkles className="w-4 h-4 text-emerald-600" />
-                    <span>Rubric Consistency Health</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      <span>Rubric Consistency Health</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      96.2% Determinism
+                    </span>
                   </div>
 
-                  <div className="space-y-3 pt-1">
+                  {/* 5x5 Rubric Determinism Validation Button */}
+                  <div className="space-y-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIs5x5ModalOpen(true)}
+                      className="w-full py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-2 transition-colors active:scale-[0.99] group"
+                    >
+                      <Scale className="w-4 h-4 text-slate-300 group-hover:scale-105 transition-transform" />
+                      <span>Validate Rubric Criteria (5&times;5 Test)</span>
+                    </button>
+                    <p className="text-[10px] text-slate-700 text-center font-medium">
+                      Verifies whether each rubric criterion produces reproducible marks across 5 samples &times; 5 runs
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-2 border-t border-slate-100">
                     <div className="flex items-start gap-2.5 text-xs">
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                       <div>
@@ -831,6 +865,13 @@ function UploadContent() {
         )}
 
       </main>
+
+      {/* 5x5 Rubric Determinism Test Modal */}
+      <Rubric5x5TestModal
+        isOpen={is5x5ModalOpen}
+        onClose={() => setIs5x5ModalOpen(false)}
+        onProceedToGrading={() => router.push('/grading')}
+      />
 
       {/* Floating Action / Toast Notification */}
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
