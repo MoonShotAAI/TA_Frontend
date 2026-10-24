@@ -8,31 +8,32 @@ import {
   HelpCircle,
   FileCheck2,
   ListTree,
-  BarChart3,
-  Settings,
   FolderKanban,
-  LogOut,
   UploadCloud,
-  ChevronDown,
 } from 'lucide-react';
 
 interface TopHeaderProps {
   currentCourse?: string;
+  activeSection?: 'batches' | 'upload' | 'rubrics' | 'grade';
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
   currentCourse = 'CS 229 - Machine Learning',
+  activeSection: propActiveSection,
 }) => {
   const pathname = usePathname();
 
-  const navLinks = [
-    { label: 'Batches', href: '/', icon: FolderKanban },
-    { label: 'Upload ZIP', href: '/upload', icon: UploadCloud },
-    { label: 'Grade', href: '/grading', icon: FileCheck2 },
-    { label: 'Rubrics', href: '/upload?step=2', icon: ListTree },
-    { label: 'Analytics', href: '#', icon: BarChart3 },
-    { label: 'Settings', href: '#', icon: Settings },
-  ];
+  // Determine active section fallback from pathname if not explicitly passed
+  let activeSection = propActiveSection;
+  if (!activeSection) {
+    if (pathname === '/') {
+      activeSection = 'batches';
+    } else if (pathname.startsWith('/upload')) {
+      activeSection = 'upload';
+    } else if (pathname.startsWith('/grading') || pathname.startsWith('/confidence')) {
+      activeSection = 'grade';
+    }
+  }
 
   return (
     <header className="bg-[#0b1727] text-white border-b border-[#1b2b44] sticky top-0 z-50 shadow-md">
@@ -52,30 +53,59 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </div>
           </Link>
 
-          {/* Navigation Tabs */}
-          <nav className="hidden md:flex items-center gap-1">
-            {navLinks.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                item.href === '/'
-                  ? pathname === '/'
-                  : pathname.startsWith(item.href.split('?')[0]);
+          {/* Navigation Items */}
+          <nav className="hidden md:flex items-center gap-1.5">
+            {/* 1. Batches (Enabled Link) */}
+            <Link
+              href="/"
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-md transition-all ${
+                activeSection === 'batches'
+                  ? 'bg-blue-600/30 text-white font-semibold border border-blue-500/40'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <FolderKanban className={`w-3.5 h-3.5 ${activeSection === 'batches' ? 'text-blue-400' : 'text-slate-400'}`} />
+              <span>Batches</span>
+            </Link>
 
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-md transition-all ${
-                    isActive
-                      ? 'bg-blue-600/30 text-white font-semibold border border-blue-500/40'
-                      : 'text-slate-300 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
-                  {item.label}
-                </Link>
-              );
-            })}
+            {/* 2. Upload ZIP (Enabled Link) */}
+            <Link
+              href="/upload"
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-md transition-all ${
+                activeSection === 'upload'
+                  ? 'bg-blue-600/30 text-white font-semibold border border-blue-500/40'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <UploadCloud className={`w-3.5 h-3.5 ${activeSection === 'upload' ? 'text-blue-400' : 'text-slate-400'}`} />
+              <span>Upload ZIP</span>
+            </Link>
+
+            {/* 3. Rubrics (Status Indicator - Non-clickable) */}
+            <div
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs rounded-md cursor-default select-none transition-all ${
+                activeSection === 'rubrics'
+                  ? 'bg-blue-600/30 text-white font-semibold border border-blue-500/40'
+                  : 'text-slate-400/70 hover:text-slate-400/70'
+              }`}
+              title="Rubrics Stage (Status Indicator)"
+            >
+              <ListTree className={`w-3.5 h-3.5 ${activeSection === 'rubrics' ? 'text-blue-400' : 'text-slate-500'}`} />
+              <span>Rubrics</span>
+            </div>
+
+            {/* 4. Grade (Status Indicator - Non-clickable) */}
+            <div
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs rounded-md cursor-default select-none transition-all ${
+                activeSection === 'grade'
+                  ? 'bg-blue-600/30 text-white font-semibold border border-blue-500/40'
+                  : 'text-slate-400/70 hover:text-slate-400/70'
+              }`}
+              title="Grade Stage (Status Indicator)"
+            >
+              <FileCheck2 className={`w-3.5 h-3.5 ${activeSection === 'grade' ? 'text-blue-400' : 'text-slate-500'}`} />
+              <span>Grade</span>
+            </div>
           </nav>
         </div>
 
@@ -97,15 +127,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </div>
             <div className="hidden sm:block text-left leading-tight">
               <div className="text-xs font-semibold text-white">Prof. Jane Doe</div>
-              <div className="text-[11px] text-slate-400 font-medium">Computer Science</div>
+              <div className="text-[11px] text-slate-400 font-medium">{currentCourse}</div>
             </div>
-            <Link
-              href="/login"
-              title="Sign Out / Switch Account"
-              className="text-slate-400 hover:text-rose-400 p-1.5 rounded-md hover:bg-white/5 transition-colors ml-1"
-            >
-              <LogOut className="w-4 h-4" />
-            </Link>
           </div>
         </div>
       </div>
