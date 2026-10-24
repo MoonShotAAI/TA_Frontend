@@ -32,7 +32,7 @@ interface CriterionConsistencyItem {
   sampleBreakdowns: {
     sampleName: string;
     fileName: string;
-    runVerdicts: ('Met' | 'Partially Met' | 'Not Met')[];
+    runVerdicts: ('Met' | 'Not Met')[];
     scores: number[];
     isDeterministic: boolean;
   }[];
@@ -54,7 +54,7 @@ const INITIAL_CRITERIA_CONSISTENCY: CriterionConsistencyItem[] = [
     sampleBreakdowns: [
       { sampleName: 'Sample 1', fileName: 'student_001.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
       { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
-      { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Partially Met', 'Partially Met', 'Partially Met', 'Partially Met', 'Partially Met'], scores: [16, 16, 16, 16, 16], isDeterministic: true },
+      { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Not Met', 'Not Met', 'Not Met', 'Not Met', 'Not Met'], scores: [0, 0, 0, 0, 0], isDeterministic: true },
       { sampleName: 'Sample 4', fileName: 'student_012.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
       { sampleName: 'Sample 5', fileName: 'student_018.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
     ],
@@ -70,7 +70,7 @@ const INITIAL_CRITERIA_CONSISTENCY: CriterionConsistencyItem[] = [
     variance: 0.08,
     sampleBreakdowns: [
       { sampleName: 'Sample 1', fileName: 'student_001.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
-      { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Partially Met', 'Partially Met', 'Partially Met', 'Partially Met', 'Partially Met'], scores: [16, 16, 16, 16, 16], isDeterministic: true },
+      { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Not Met', 'Not Met', 'Not Met', 'Not Met', 'Not Met'], scores: [0, 0, 0, 0, 0], isDeterministic: true },
       { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
       { sampleName: 'Sample 4', fileName: 'student_012.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
       { sampleName: 'Sample 5', fileName: 'student_018.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
@@ -82,17 +82,17 @@ const INITIAL_CRITERIA_CONSISTENCY: CriterionConsistencyItem[] = [
     title: 'Model Implementation',
     maxScore: 25,
     category: 'Implementation',
-    consistencyRate: 84, // Ambiguous penalty criteria!
+    consistencyRate: 84, // Ambiguous criteria!
     verdictStability: 'Ambiguous',
     variance: 0.82,
     ambiguityReason:
-      'The phrase "Code is clean, modular, and well-documented" lacks quantitative thresholds. In Sample #2, the penalty for missing inline docstrings fluctuated between -2 pts and -5 pts across runs.',
+      'The phrase "Code is clean, modular, and well-documented" lacks quantitative thresholds. In Sample #2, the verdict fluctuated between Met (25 pts) and Not Met (0 pts) across runs depending on docstring interpretation.',
     clarifiedRuleSuggestion:
-      'Add explicit threshold: "Deduct exactly 2 pts if fewer than 3 functions have docstrings; deduct 5 pts if code produces unhandled warnings."',
+      'Add binary threshold: "Mark as Met (25 pts) if all defined functions include docstrings and execute without warnings; otherwise mark as Not Met (0 pts)."',
     isClarified: false,
     sampleBreakdowns: [
       { sampleName: 'Sample 1', fileName: 'student_001.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
-      { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Partially Met', 'Partially Met', 'Not Met', 'Partially Met', 'Not Met'], scores: [20, 20, 15, 20, 15], isDeterministic: false },
+      { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Met', 'Met', 'Not Met', 'Met', 'Not Met'], scores: [25, 25, 0, 25, 0], isDeterministic: false },
       { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
       { sampleName: 'Sample 4', fileName: 'student_012.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
       { sampleName: 'Sample 5', fileName: 'student_018.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
@@ -111,7 +111,7 @@ const INITIAL_CRITERIA_CONSISTENCY: CriterionConsistencyItem[] = [
       { sampleName: 'Sample 1', fileName: 'student_001.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
       { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
       { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
-      { sampleName: 'Sample 4', fileName: 'student_012.ipynb', runVerdicts: ['Partially Met', 'Partially Met', 'Partially Met', 'Partially Met', 'Partially Met'], scores: [20, 20, 20, 20, 20], isDeterministic: true },
+      { sampleName: 'Sample 4', fileName: 'student_012.ipynb', runVerdicts: ['Not Met', 'Not Met', 'Not Met', 'Not Met', 'Not Met'], scores: [0, 0, 0, 0, 0], isDeterministic: true },
       { sampleName: 'Sample 5', fileName: 'student_018.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [25, 25, 25, 25, 25], isDeterministic: true },
     ],
   },
@@ -127,7 +127,7 @@ const INITIAL_CRITERIA_CONSISTENCY: CriterionConsistencyItem[] = [
     sampleBreakdowns: [
       { sampleName: 'Sample 1', fileName: 'student_001.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [10, 10, 10, 10, 10], isDeterministic: true },
       { sampleName: 'Sample 2', fileName: 'student_003.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [10, 10, 10, 10, 10], isDeterministic: true },
-      { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Partially Met', 'Partially Met', 'Partially Met', 'Partially Met', 'Partially Met'], scores: [6, 6, 6, 6, 6], isDeterministic: true },
+      { sampleName: 'Sample 3', fileName: 'student_007.ipynb', runVerdicts: ['Not Met', 'Not Met', 'Not Met', 'Not Met', 'Not Met'], scores: [0, 0, 0, 0, 0], isDeterministic: true },
       { sampleName: 'Sample 4', fileName: 'student_012.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [10, 10, 10, 10, 10], isDeterministic: true },
       { sampleName: 'Sample 5', fileName: 'student_018.ipynb', runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'], scores: [10, 10, 10, 10, 10], isDeterministic: true },
     ],
@@ -179,8 +179,8 @@ export const Rubric5x5TestModal: React.FC<Rubric5x5TestModalProps> = ({
             isClarified: true,
             sampleBreakdowns: c.sampleBreakdowns.map((s) => ({
               ...s,
-              runVerdicts: ['Partially Met', 'Partially Met', 'Partially Met', 'Partially Met', 'Partially Met'],
-              scores: [20, 20, 20, 20, 20],
+              runVerdicts: ['Met', 'Met', 'Met', 'Met', 'Met'],
+              scores: [25, 25, 25, 25, 25],
               isDeterministic: true,
             })),
           };
@@ -219,7 +219,7 @@ export const Rubric5x5TestModal: React.FC<Rubric5x5TestModalProps> = ({
                 Rubric Criteria Consistency &amp; Ambiguity Test
               </h2>
               <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
-                Verifies whether <strong>each rubric criterion</strong> is unambiguous and produces reproducible verdicts (`Met` / `Partially Met` / `Not Met`) when AI grades diverse sample submissions repeatedly.
+                Verifies whether <strong>each rubric criterion</strong> is unambiguous and produces reproducible verdicts (<code>Met</code> / <code>Not Met</code>) when AI grades diverse sample submissions repeatedly.
               </p>
             </div>
           </div>
@@ -472,8 +472,6 @@ export const Rubric5x5TestModal: React.FC<Rubric5x5TestModalProps> = ({
                                         className={`font-bold ${
                                           verdict === 'Met'
                                             ? 'text-emerald-700'
-                                            : verdict === 'Partially Met'
-                                            ? 'text-blue-700'
                                             : 'text-rose-700'
                                         }`}
                                       >
