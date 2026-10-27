@@ -68,7 +68,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               <span>Batches</span>
             </Link>
 
-            {/* 2. Upload ZIP (Enabled Link) */}
+            {/* 2. Submissions / Upload */}
             <Link
               href="/upload"
               className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-md transition-all ${
@@ -78,7 +78,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               }`}
             >
               <UploadCloud className={`w-3.5 h-3.5 ${activeSection === 'upload' ? 'text-blue-400' : 'text-slate-400'}`} />
-              <span>Upload ZIP</span>
+              <span>Submissions</span>
             </Link>
 
             {/* 3. Rubrics (Status Indicator - Non-clickable) */}
@@ -109,7 +109,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </nav>
         </div>
 
-        {/* Right: Help & Profile */}
+        {/* Right: Help */}
         <div className="flex items-center gap-4">
           <button
             title="Help & Documentation"
@@ -117,19 +117,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           >
             <HelpCircle className="w-4 h-4" />
           </button>
-
-          <div className="h-5 w-px bg-slate-700/80 hidden sm:block" />
-
-          {/* User Profile Info */}
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center ring-2 ring-blue-400/30">
-              JD
-            </div>
-            <div className="hidden sm:block text-left leading-tight">
-              <div className="text-xs font-semibold text-white">Prof. Jane Doe</div>
-              <div className="text-[11px] text-slate-400 font-medium">{currentCourse}</div>
-            </div>
-          </div>
         </div>
       </div>
     </header>

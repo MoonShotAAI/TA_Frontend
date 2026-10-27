@@ -29,116 +29,80 @@ import {
   ChevronRight,
   Trash2,
   Scale,
+  Eye,
+  Loader2,
+  X,
+  Copy,
+  Plus,
 } from 'lucide-react';
 import { TopHeader } from '@/components/TopHeader';
 import { StepProgressBar, GradingStep } from '@/components/StepProgressBar';
 import { Toast } from '@/components/Toast';
 import { Rubric5x5TestModal } from '@/components/Rubric5x5TestModal';
+import {
+  uploadLmsZip,
+  fetchBatchFiles,
+  fetchParsedText,
+  parseSinglePdf,
+  fetchBatches,
+  parseRubricWithClaude,
+  fetchRubricByBatch,
+  BatchItem,
+  SubmissionFileItem,
+  ParsedFileDetail,
+  PDFLightweightResult,
+  RubricCriterionItem,
+} from '@/utils/api';
 
-interface UploadedFileItem {
+interface UploadedFileDisplay {
   id: string;
   name: string;
+  studentId?: string;
   type: string;
   size: string;
   dateModified: string;
+  status: string; // 'Uploaded' | 'Parsing' | 'Parsed' | 'Graded'
   isFolder?: boolean;
 }
 
-const INITIAL_FILES: UploadedFileItem[] = [
-  {
-    id: 'f-1',
-    name: 'student_submissions',
-    type: 'Folder',
-    size: '--',
-    dateModified: 'Oct 15, 2024 2:14 PM',
-    isFolder: true,
-  },
-  {
-    id: 'f-2',
-    name: 'student_001.ipynb',
-    type: 'Jupyter Notebook',
-    size: '245 KB',
-    dateModified: 'Oct 15, 2024 2:13 PM',
-  },
-  {
-    id: 'f-3',
-    name: 'student_002.ipynb',
-    type: 'Jupyter Notebook',
-    size: '312 KB',
-    dateModified: 'Oct 15, 2024 2:13 PM',
-  },
-  {
-    id: 'f-4',
-    name: 'student_003.ipynb',
-    type: 'Jupyter Notebook',
-    size: '198 KB',
-    dateModified: 'Oct 15, 2024 2:13 PM',
-  },
-  {
-    id: 'f-5',
-    name: 'student_004.ipynb',
-    type: 'Jupyter Notebook',
-    size: '356 KB',
-    dateModified: 'Oct 15, 2024 2:12 PM',
-  },
-  {
-    id: 'f-6',
-    name: 'student_005.ipynb',
-    type: 'Jupyter Notebook',
-    size: '280 KB',
-    dateModified: 'Oct 15, 2024 2:11 PM',
-  },
-  {
-    id: 'f-7',
-    name: 'student_006.ipynb',
-    type: 'Jupyter Notebook',
-    size: '310 KB',
-    dateModified: 'Oct 15, 2024 2:10 PM',
-  },
-];
-
-const DEFAULT_RUBRIC_TEXT = `CS 229 - Machine Learning
-Homework 3: Model Evaluation
-Total: 100 points
-
-1. Problem Formulation (20 points)
-• Clearly defines the learning problem and target variable (10 pts)
-• Justifies the choice of evaluation metric(s) (10 pts)
-
-2. Data Analysis (20 points)
-• Explores and summarizes key patterns in the data (10 pts)
-• Identifies potential data issues (e.g., missing values, imbalance) and discusses their impact (10 pts)
-
-3. Model Implementation (25 points)
-• Correctly implements the required model(s) (15 pts)
-• Code is clean, modular, and well-documented (10 pts)
-
-4. Results and Evaluation (25 points)
-• Reports results with appropriate metrics and visualizations (15 pts)
-• Provides a clear and thoughtful discussion of results (10 pts)
-
-5. Conclusion (10 points)
-• Summarizes key findings (5 pts)
-• Discusses limitations and possible improvements (5 pts)`;
+const DEFAULT_RUBRIC_TEXT = '';
 
 function UploadContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const singlePdfInputRef = useRef<HTMLInputElement>(null);
 
   const initialStepParam = searchParams.get('step');
   const [currentStep, setCurrentStep] = useState<GradingStep>(
     initialStepParam === '2' ? 2 : 1
   );
 
-  const [files, setFiles] = useState<UploadedFileItem[]>(INITIAL_FILES);
+  // Batches & Backend State
+  const [batches, setBatches] = useState<BatchItem[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>('');
+  const [files, setFiles] = useState<UploadedFileDisplay[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Loading & Upload Progress States
+  const [isUploadingZip, setIsUploadingZip] = useState(false);
+  const [uploadStatusMessage, setUploadStatusMessage] = useState('');
+  const [isTestingPdf, setIsTestingPdf] = useState(false);
+
+  // Modals for Parsed Inspection
+  const [parsedModalDetail, setParsedModalDetail] = useState<ParsedFileDetail | null>(null);
+  const [isLoadingParsedDetail, setIsLoadingParsedDetail] = useState(false);
+  const [singlePdfResult, setSinglePdfResult] = useState<PDFLightweightResult | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+
   // Step 2 state
   const [rubricInputTab, setRubricInputTab] = useState<'paste' | 'upload' | 'pdf'>('paste');
-  const [rubricText, setRubricText] = useState(DEFAULT_RUBRIC_TEXT);
+  const [assignmentTitle, setAssignmentTitle] = useState('');
+  const [rubricText, setRubricText] = useState('');
+  const [parsedCriteria, setParsedCriteria] = useState<RubricCriterionItem[]>([]);
+  const [totalRubricPoints, setTotalRubricPoints] = useState<number>(0);
   const [isParsingRubric, setIsParsingRubric] = useState(false);
   const [is5x5ModalOpen, setIs5x5ModalOpen] = useState(false);
 
@@ -146,18 +110,183 @@ function UploadContent() {
     setToastMessage(msg);
   };
 
+  // Human editing handlers for AI-structured checklist
+  const handleUpdateCriterion = (
+    index: number,
+    field: keyof RubricCriterionItem,
+    value: string | number
+  ) => {
+    setParsedCriteria((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      if (field === 'max_score') {
+        const newTotal = updated.reduce(
+          (sum, item) => sum + (Number(item.max_score) || 0),
+          0
+        );
+        setTotalRubricPoints(newTotal);
+      }
+      return updated;
+    });
+  };
+
+  const handleRemoveCriterion = (index: number) => {
+    setParsedCriteria((prev) => {
+      const filtered = prev
+        .filter((_, i) => i !== index)
+        .map((item, idx) => ({
+          ...item,
+          criterion_number: idx + 1,
+        }));
+      const newTotal = filtered.reduce(
+        (sum, item) => sum + (Number(item.max_score) || 0),
+        0
+      );
+      setTotalRubricPoints(newTotal);
+      return filtered;
+    });
+  };
+
+  const handleAddCriterion = () => {
+    setParsedCriteria((prev) => {
+      const newNum = prev.length + 1;
+      const newItem: RubricCriterionItem = {
+        criterion_number: newNum,
+        title: `평가 기준 ${newNum}`,
+        description: '',
+        category: '일반',
+        max_score: 5,
+        scoring_guideline: '5점(우수): 완벽 구현 | 3~4점(보통): 부분 구현 | 1~2점(미흡): 미완성/오류 | 0점: 미수행',
+      };
+      const updated = [...prev, newItem];
+      const newTotal = updated.reduce(
+        (sum, item) => sum + (Number(item.max_score) || 0),
+        0
+      );
+      setTotalRubricPoints(newTotal);
+      return updated;
+    });
+  };
+
+  const handleClearCriteria = () => {
+    setParsedCriteria([]);
+    setTotalRubricPoints(0);
+  };
+
+  // Load batches and current batch files from Backend on mount
+  useEffect(() => {
+    async function initData() {
+      try {
+        const batchParam = searchParams.get('batchId');
+        const batchList = await fetchBatches();
+        if (batchList && batchList.length > 0) {
+          setBatches(batchList);
+          // Only auto-load batch data and rubric if batchParam is explicitly passed in URL
+          if (batchParam && batchList.some((b) => b.id === batchParam)) {
+            setSelectedBatchId(batchParam);
+
+            const curBatch = batchList.find((b) => b.id === batchParam);
+            if (curBatch?.assignment_title) {
+              setAssignmentTitle(curBatch.assignment_title);
+            }
+
+            const backendFiles = await fetchBatchFiles(batchParam);
+            if (backendFiles && backendFiles.length > 0) {
+              mapAndSetFiles(backendFiles);
+            } else {
+              setFiles([]);
+            }
+
+            // Fetch existing rubric criteria if already created for this specific batch
+            try {
+              const rub = await fetchRubricByBatch(batchParam);
+              if (rub && rub.criteria && rub.criteria.length > 0) {
+                setParsedCriteria(rub.criteria);
+                setTotalRubricPoints(rub.total_points || 0);
+                if (rub.raw_text) setRubricText(rub.raw_text);
+                if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
+              }
+            } catch {
+              // No saved rubric for this batch yet
+            }
+          } else {
+            // No explicit batchParam: keep fields clean and empty!
+            setSelectedBatchId(batchList[0]?.id || '');
+            setFiles([]);
+          }
+        } else {
+          setBatches([]);
+          setSelectedBatchId('');
+          setFiles([]);
+        }
+      } catch (err) {
+        console.warn('Backend not reachable or running demo mockups:', err);
+      }
+    }
+    initData();
+  }, [searchParams]);
+
+  const mapAndSetFiles = (backendFiles: SubmissionFileItem[]) => {
+    const mapped: UploadedFileDisplay[] = backendFiles.map((bf) => ({
+      id: bf.id,
+      name: bf.file_name,
+      studentId: bf.student_id,
+      type: bf.file_format.toUpperCase() + ' Document',
+      size: `${bf.file_size_kb.toLocaleString()} KB`,
+      dateModified: new Date(bf.created_at).toLocaleDateString(),
+      status: bf.status,
+    }));
+    setFiles(mapped);
+  };
+
   const handleStepClick = (step: GradingStep) => {
     if (step === 3 || step === 4) {
-      router.push('/grading');
+      router.push(selectedBatchId ? `/grading?batchId=${selectedBatchId}` : '/grading');
     } else {
       setCurrentStep(step);
+    }
+  };
+
+  // Real Upload Handler for ZIP
+  const handleProcessZipFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      showToast('⚠️ Please upload a valid .zip file archive.');
+      return;
+    }
+
+    try {
+      setIsUploadingZip(true);
+      setUploadStatusMessage(`Uploading "${file.name}" & extracting documents to storage/parsed...`);
+
+      const res = await uploadLmsZip(selectedBatchId || (undefined as any), file);
+      showToast(`🎉 ${res.message}`);
+
+      // Refresh batches from backend to get newly created or updated batch
+      const updatedBatches = await fetchBatches();
+      if (updatedBatches && updatedBatches.length > 0) {
+        setBatches(updatedBatches);
+        const activeId = selectedBatchId || updatedBatches[0].id;
+        setSelectedBatchId(activeId);
+        const updatedFiles = await fetchBatchFiles(activeId);
+        mapAndSetFiles(updatedFiles);
+        const cur = updatedBatches.find((b) => b.id === activeId);
+        if (cur?.assignment_title) setAssignmentTitle(cur.assignment_title);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`❌ Upload failed: ${msg}`);
+    } finally {
+      setIsUploadingZip(false);
+      setUploadStatusMessage('');
     }
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    showToast("✓ ZIP package extracted! 24 submission files detected.");
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleProcessZipFile(e.dataTransfer.files[0]);
+    }
   };
 
   const handleChooseZip = () => {
@@ -166,21 +295,94 @@ function UploadContent() {
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      showToast(`✓ ZIP package "${file.name}" uploaded and unpacked!`);
+      handleProcessZipFile(e.target.files[0]);
     }
+  };
+
+  // Test Single PDF Real-time Lightweighting
+  const handleProcessSinglePdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
+        showToast('⚠️ Please select a .pdf file.');
+        return;
+      }
+      try {
+        setIsTestingPdf(true);
+        showToast(`⚡ Parsing PDF "${file.name}" with PDFLightweightParser...`);
+        const result = await parseSinglePdf(file);
+        setSinglePdfResult(result);
+        showToast(`✓ PDF 경량화 완료! 압축률: ${result.compression_ratio_percent}%`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showToast(`❌ PDF Parsing failed: ${msg}`);
+      } finally {
+        setIsTestingPdf(false);
+      }
+    }
+  };
+
+  // View Parsed Text Modal Handler
+  const handleViewParsedText = async (fileId: string) => {
+    try {
+      setIsLoadingParsedDetail(true);
+      const detail = await fetchParsedText(fileId);
+      setParsedModalDetail(detail);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`❌ Could not fetch parsed text: ${msg}`);
+    } finally {
+      setIsLoadingParsedDetail(false);
+    }
+  };
+
+  const copyParsedToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   const filteredFiles = files.filter((f) =>
     f.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleParseRubric = () => {
-    setIsParsingRubric(true);
-    setTimeout(() => {
+  const handleParseRubric = async () => {
+    if (!rubricText.trim()) {
+      showToast('⚠️ Please enter or paste rubric text.');
+      return;
+    }
+
+    try {
+      setIsParsingRubric(true);
+      showToast('🤖 Claude AI가 루브릭을 분석하여 점수 척도 기반 체크리스트를 생성하는 중입니다...');
+      const res = await parseRubricWithClaude({
+        batch_id: selectedBatchId || undefined,
+        assignment_title: assignmentTitle.trim() || undefined,
+        raw_rubric_text: rubricText,
+      });
+
+      setParsedCriteria(res.criteria);
+      setTotalRubricPoints(res.total_points || 100);
+      if (res.assignment_title) {
+        setAssignmentTitle(res.assignment_title);
+      }
+      if (res.batch_id && res.batch_id !== selectedBatchId) {
+        setSelectedBatchId(res.batch_id);
+      }
+
+      // Also refresh batches so the target batch list stays current
+      const updatedBatches = await fetchBatches();
+      if (updatedBatches && updatedBatches.length > 0) {
+        setBatches(updatedBatches);
+      }
+
+      showToast(`🎉 Claude AI가 ${res.criteria.length}개의 세부 평가 체크리스트(1~10점 척도)를 생성했습니다!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`❌ 루브릭 파싱 실패: ${msg}`);
+    } finally {
       setIsParsingRubric(false);
-      showToast("🎉 Rubric parsed into 5 structured criteria (10 sub-criteria). Ready for AI grading!");
-    }, 800);
+    }
   };
 
   return (
@@ -206,18 +408,47 @@ function UploadContent() {
               
               {/* Step Header Card */}
               <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                    <UploadCloud className="w-6 h-6" />
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                      <UploadCloud className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                        Step 1. Upload ZIP from LMS
+                      </h1>
+                      <p className="text-xs text-slate-700 font-medium mt-0.5">
+                        Upload LMS assignment ZIP &mdash; backend will asynchronously extract and parse PDFs to local disk
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                      Step 1. Upload ZIP from LMS
-                    </h1>
-                    <p className="text-xs text-slate-700 font-medium mt-0.5">
-                      Upload the downloaded assignment batch from your LMS (e.g., Canvas, Gradescope, Blackboard)
-                    </p>
-                  </div>
+
+                  {/* Batch Selector if multiple batches exist */}
+                  {batches.length > 0 && (
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                      <span className="font-semibold text-slate-600">Target Batch:</span>
+                      <select
+                        value={selectedBatchId}
+                        onChange={async (e) => {
+                          const newBId = e.target.value;
+                          setSelectedBatchId(newBId);
+                          try {
+                            const bFiles = await fetchBatchFiles(newBId);
+                            mapAndSetFiles(bFiles);
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        className="bg-transparent font-bold text-blue-700 focus:outline-hidden"
+                      >
+                        {batches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.course_code} - {b.assignment_title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Drag and Drop Box */}
@@ -228,7 +459,7 @@ function UploadContent() {
                   }}
                   onDragLeave={() => setIsDragging(false)}
                   onDrop={handleFileDrop}
-                  className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all ${
+                  className={`border-2 border-dashed rounded-2xl p-8 sm:p-10 text-center transition-all ${
                     isDragging
                       ? 'border-blue-500 bg-blue-50/80 ring-4 ring-blue-100'
                       : 'border-blue-200/90 bg-gradient-to-b from-blue-50/40 to-slate-50/30 hover:bg-blue-50/50'
@@ -241,28 +472,53 @@ function UploadContent() {
                     className="hidden"
                     onChange={handleFileInputChange}
                   />
+                  <input
+                    ref={singlePdfInputRef}
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={handleProcessSinglePdf}
+                  />
 
                   <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mb-4 shadow-xs">
-                    <FileArchive className="w-8 h-8" />
+                    {isUploadingZip ? (
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                    ) : (
+                      <FileArchive className="w-8 h-8" />
+                    )}
                   </div>
 
                   <h3 className="text-sm font-bold text-slate-800">
-                    Drag and drop your ZIP file here
+                    {isUploadingZip ? 'Uploading & Parsing PDFs in Background...' : 'Drag and drop your ZIP file here'}
                   </h3>
-                  <p className="text-xs text-slate-700 font-medium mt-1">or click to browse</p>
+                  <p className="text-xs text-slate-700 font-medium mt-1">
+                    {uploadStatusMessage || 'or choose an archive from your local disk'}
+                  </p>
 
-                  <div className="mt-4">
+                  <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                     <button
                       type="button"
+                      disabled={isUploadingZip}
                       onClick={handleChooseZip}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg hover:shadow-blue-500/30"
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg hover:shadow-blue-500/30 disabled:opacity-60 flex items-center gap-2"
                     >
-                      Choose ZIP File
+                      {isUploadingZip && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Choose ZIP Archive</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isTestingPdf}
+                      onClick={() => singlePdfInputRef.current?.click()}
+                      className="px-4 py-2.5 rounded-xl bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-2xs transition-all flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Test Single PDF Parser</span>
                     </button>
                   </div>
 
-                  <p className="text-[11px] text-slate-700 mt-4 font-medium">
-                    Upload downloaded assignment batch from LMS (Supports .zip files up to 2GB)
+                  <p className="text-[11px] text-slate-600 mt-4 font-medium">
+                    ⚡ PDF files will automatically have headers/footers removed and saved to <code>storage/parsed/</code>
                   </p>
                 </div>
               </div>
@@ -272,10 +528,10 @@ function UploadContent() {
                 <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <h2 className="text-sm font-bold text-slate-900">
-                      Uploaded Files
+                      Uploaded Submissions &amp; Parsed Status
                     </h2>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
-                      24 items
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold">
+                      {files.length} items
                     </span>
                   </div>
 
@@ -286,7 +542,7 @@ function UploadContent() {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search files..."
+                      placeholder="Search submissions..."
                       className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 text-slate-800"
                     />
                   </div>
@@ -297,33 +553,67 @@ function UploadContent() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50/80 text-slate-700 uppercase font-semibold border-b border-slate-100">
                       <tr>
-                        <th className="py-3 px-5">Name ↑</th>
-                        <th className="py-3 px-4">Type</th>
+                        <th className="py-3 px-5">Submission File</th>
+                        <th className="py-3 px-4">Student ID</th>
                         <th className="py-3 px-4">Size</th>
-                        <th className="py-3 px-4">Date Modified</th>
-                        <th className="py-3 px-4 text-right">Action</th>
+                        <th className="py-3 px-4">Parser Status</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                      {filteredFiles.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-slate-400">
+                            <FileArchive className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <div className="font-semibold text-slate-600">등록된 과제 파일이 없습니다</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              상단 드롭존에 LMS ZIP 파일을 드래그 앤 드롭하여 업로드하세요.
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       {filteredFiles.map((file) => (
                         <tr key={file.id} className="hover:bg-slate-50/60 transition-colors">
                           <td className="py-3 px-5 flex items-center gap-2.5 font-semibold text-slate-900">
                             {file.isFolder ? (
                               <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                            ) : file.name.endsWith('.pdf') ? (
+                              <FileText className="w-4 h-4 text-rose-500 shrink-0" />
                             ) : (
                               <FileCode className="w-4 h-4 text-blue-500 shrink-0" />
                             )}
                             <span className="truncate max-w-[240px] sm:max-w-none">{file.name}</span>
                           </td>
-                          <td className="py-3 px-4 text-slate-700 font-medium">{file.type}</td>
+                          <td className="py-3 px-4 text-slate-700 font-mono text-[11px]">
+                            {file.studentId || '--'}
+                          </td>
                           <td className="py-3 px-4 text-slate-700 font-mono text-[11px]">{file.size}</td>
-                          <td className="py-3 px-4 text-slate-700">{file.dateModified}</td>
+                          <td className="py-3 px-4">
+                            {file.status === 'Parsed' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>Parsed &amp; Saved</span>
+                              </span>
+                            ) : file.status === 'Parsing' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
+                                <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                                <span>Parsing...</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
+                                {file.status}
+                              </span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-right">
                             <button
-                              title="File actions"
-                              className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100"
+                              type="button"
+                              onClick={() => handleViewParsedText(file.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 font-semibold text-[11px] transition-colors"
+                              title="View parsed text"
                             >
-                              <MoreVertical className="w-4 h-4" />
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Text</span>
                             </button>
                           </td>
                         </tr>
@@ -335,7 +625,7 @@ function UploadContent() {
                 {/* Bottom Step Progression Banner */}
                 <div className="p-4 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between">
                   <span className="text-xs text-slate-700 font-medium">
-                    24 student submission records unpacked and indexed.
+                    {files.length} student submission records unpacked and indexed.
                   </span>
                   <button
                     onClick={() => setCurrentStep(2)}
@@ -356,7 +646,7 @@ function UploadContent() {
               <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 space-y-4">
                 <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
                   <BookOpen className="w-4 h-4 text-blue-600" />
-                  <span>Batch Information</span>
+                  <span>Active Batch Information</span>
                 </div>
 
                 <div>
@@ -374,8 +664,8 @@ function UploadContent() {
                         <Users className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-slate-900">500 students</div>
-                        <div className="text-[11px] text-slate-700 font-medium">Detected from submission batch</div>
+                        <div className="text-xs font-bold text-slate-900">{files.length} Submissions</div>
+                        <div className="text-[11px] text-slate-700 font-medium">Ready for AI Grading</div>
                       </div>
                     </div>
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
@@ -389,27 +679,12 @@ function UploadContent() {
                         <FileText className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-slate-900">Rubric loaded</div>
-                        <div className="text-[11px] text-slate-700 font-medium">HW3 Grading Rubric (v2)</div>
+                        <div className="text-xs font-bold text-slate-900">PDF Lightweighting</div>
+                        <div className="text-[11px] text-slate-700 font-medium">Saved to storage/parsed/</div>
                       </div>
                     </div>
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      Ready
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                        <CheckCircle2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">Auto-save active</div>
-                        <div className="text-[11px] text-slate-700 font-medium">Progress will be saved automatically</div>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      On
+                      Active
                     </span>
                   </div>
                 </div>
@@ -419,43 +694,22 @@ function UploadContent() {
               <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5">
                 <div className="flex items-center gap-2 text-slate-900 font-bold text-sm mb-3">
                   <Info className="w-4 h-4 text-blue-600" />
-                  <span>Tips</span>
+                  <span>PDF Parsing Guide</span>
                 </div>
                 <ul className="text-xs text-slate-700 font-medium space-y-2.5 leading-relaxed">
                   <li className="flex items-start gap-2">
                     <span className="text-blue-600 font-bold">•</span>
-                    <span>Download the full assignment batch from your LMS as a ZIP file (with all student submissions).</span>
+                    <span>ZIP contains student PDF submissions downloaded from Canvas/Gradescope.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-blue-600 font-bold">•</span>
-                    <span>Ensure the ZIP file contains all student folders/files.</span>
+                    <span>Backend lightweight parser extracts pure text while stripping headers and page numbers.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-blue-600 font-bold">•</span>
-                    <span>Supported file types: <code>.ipynb</code>, <code>.py</code>, <code>.pdf</code>, <code>.docx</code>, <code>.txt</code>, etc.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
-                    <span>File names should include student identifiers (e.g., student_001, netid, or ID).</span>
+                    <span>Cleaned texts are saved directly to <code>storage/parsed/</code> for prompt injection isolated grading.</span>
                   </li>
                 </ul>
-              </div>
-
-              {/* Need Help Card */}
-              <div className="bg-slate-50 rounded-2xl border border-slate-200/80 p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Need Help?</div>
-                  <div className="text-[11px] text-slate-700 mt-0.5">
-                    See our upload guide or contact support if you encounter issues.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => showToast("Opening LMS Upload Help Guide...")}
-                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors shrink-0"
-                >
-                  View Guide
-                </button>
               </div>
 
             </div>
@@ -512,8 +766,23 @@ function UploadContent() {
                       Instructor Rubric Input
                     </h2>
                   </div>
-                  <p className="text-[11px] text-slate-700 font-medium mb-3">
-                    Upload a rubric file (PDF, DOC, or TXT) or paste your rubric text below.
+
+                  {/* Assignment Title Input */}
+                  <div className="mb-3">
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
+                      과제 제목 (Assignment Title) *
+                    </label>
+                    <input
+                      type="text"
+                      value={assignmentTitle}
+                      onChange={(e) => setAssignmentTitle(e.target.value)}
+                      placeholder="과제 제목을 입력하세요 (예: 데이터 분석 및 머신러닝 과제 1)"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-slate-700 font-medium mb-2">
+                    루브릭 텍스트를 입력하거나 수정하세요. Claude AI가 1~10점 척도 체크리스트로 구조화합니다.
                   </p>
 
                   {/* Input Tab Switcher */}
@@ -552,16 +821,20 @@ function UploadContent() {
 
                   {/* Textarea */}
                   <textarea
-                    rows={16}
+                    rows={14}
                     value={rubricText}
                     onChange={(e) => setRubricText(e.target.value)}
+                    placeholder={`루브릭 채점 기준을 입력하거나 붙여넣으세요.\n\n예시:\n1. 데이터 전처리 및 탐색적 분석 (10점)\n- 결측치와 이상치를 적절히 처리하고 정규화 적용 (5점)\n- 특성 공학 및 상관관계 시각화 (5점)\n\n2. 머신러닝 모델 구현 (10점)\n- 문제에 적합한 2개 이상의 모델 비교 구현 (6점)\n- 교차 검증 및 하이퍼파라미터 튜닝 (4점)`}
                     className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 leading-relaxed focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none"
                   />
                 </div>
 
                 <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100">
                   <button
-                    onClick={() => setRubricText('')}
+                    onClick={() => {
+                      setRubricText('');
+                      setAssignmentTitle('');
+                    }}
                     className="text-xs text-slate-400 hover:text-rose-600 font-semibold transition-colors"
                   >
                     Clear
@@ -571,178 +844,214 @@ function UploadContent() {
                     disabled={isParsingRubric}
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all disabled:opacity-60"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-blue-200" />
-                    <span>{isParsingRubric ? 'Parsing Rubric...' : 'Parse Rubric to Checklist'}</span>
+                    {isParsingRubric ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-blue-200" />
+                    )}
+                    <span>{isParsingRubric ? 'Claude AI 파싱 중...' : 'Claude로 체크리스트 생성'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* 2. AI-Structured Checklist (5 cols) */}
-              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h2 className="text-sm font-bold text-slate-900">
-                      AI-Structured Checklist
-                    </h2>
-                    <p className="text-[11px] text-slate-700 font-medium">
-                      We&apos;ve converted your rubric into clear, gradable checklist criteria.
-                    </p>
+              {/* 2. AI-Structured Checklist (5 cols) - Fully editable by humans */}
+              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <span>AI-Structured Checklist</span>
+                        {parsedCriteria.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
+                            {parsedCriteria.length}개 항목 &bull; 총 {totalRubricPoints}점
+                          </span>
+                        )}
+                      </h2>
+                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                        루브릭이 1~10점 척도 체크리스트로 구조화되며, 직접 수정하거나 기준을 추가할 수 있습니다.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {parsedCriteria.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearCriteria}
+                          className="px-2 py-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-colors"
+                        >
+                          전체 초기화
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleAddCriterion}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>기준 추가</span>
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIs5x5ModalOpen(true)}
-                      className="px-3 py-1 rounded-lg border border-indigo-200 bg-indigo-50/80 text-xs font-bold text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5 transition-colors shadow-2xs"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Test Rubric (5&times;5)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => showToast("Checklist editor mode enabled.")}
-                      className="px-3 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
-                    >
-                      Edit Checklist
-                    </button>
-                  </div>
+
+                  {parsedCriteria.length === 0 ? (
+                    <div className="text-center py-16 px-4 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 my-3 space-y-3">
+                      <Sparkles className="w-8 h-8 text-blue-500 mx-auto" />
+                      <h3 className="text-xs font-bold text-slate-800">생성된 체크리스트가 없습니다</h3>
+                      <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-relaxed">
+                        좌측에서 과제 제목과 루브릭 텍스트를 입력하고 <strong>[Claude로 체크리스트 생성]</strong>을 클릭하거나, <strong>[기준 추가]</strong>를 눌러 직접 작성할 수 있습니다.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleAddCriterion}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:border-blue-500 text-slate-700 hover:text-blue-600 font-bold text-xs shadow-2xs transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-blue-600" />
+                        <span>새 평가 기준 직접 작성하기</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3.5 mt-3 max-h-[580px] overflow-y-auto pr-1">
+                      {parsedCriteria.map((item, index) => (
+                        <div
+                          key={item.criterion_number || index}
+                          className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-blue-300 shadow-2xs transition-all space-y-2.5"
+                        >
+                          {/* Top: Index, Title (editable), Category (editable), Max Score (editable), Delete */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="w-6 h-6 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                                {item.criterion_number}
+                              </span>
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <input
+                                  type="text"
+                                  value={item.title}
+                                  onChange={(e) => handleUpdateCriterion(index, 'title', e.target.value)}
+                                  placeholder="평가 기준 제목"
+                                  className="w-full text-xs font-bold text-slate-900 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1 focus:outline-hidden"
+                                />
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-semibold text-slate-400">분류:</span>
+                                  <input
+                                    type="text"
+                                    value={item.category}
+                                    onChange={(e) => handleUpdateCriterion(index, 'category', e.target.value)}
+                                    placeholder="카테고리"
+                                    className="text-[10px] text-slate-600 bg-slate-50 focus:bg-white border border-slate-200 rounded px-1.5 py-0.5 w-36 focus:outline-hidden"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Max score input and Delete button */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1">
+                                <span className="text-[10px] font-bold text-blue-700">배점</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  value={item.max_score}
+                                  onChange={(e) =>
+                                    handleUpdateCriterion(
+                                      index,
+                                      'max_score',
+                                      Math.max(1, parseInt(e.target.value) || 1)
+                                    )
+                                  }
+                                  className="w-10 text-center font-mono font-extrabold text-xs text-blue-900 bg-white border border-blue-300 rounded px-1 py-0.5 focus:outline-hidden"
+                                />
+                                <span className="text-[10px] font-bold text-blue-700">점</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCriterion(index)}
+                                title="이 기준 삭제"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Description textarea */}
+                          <div>
+                            <textarea
+                              rows={2}
+                              value={item.description}
+                              onChange={(e) => handleUpdateCriterion(index, 'description', e.target.value)}
+                              placeholder="세부 평가 항목 및 기준 설명을 입력하세요..."
+                              className="w-full p-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-xs font-medium text-slate-800 leading-relaxed resize-y focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Scoring Guideline textarea */}
+                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] space-y-1">
+                            <div className="font-bold text-slate-700 flex items-center justify-between">
+                              <span className="flex items-center gap-1">
+                                <Sliders className="w-3 h-3 text-blue-600" />
+                                <span>점수 산정 기준 (0 ~ {item.max_score}점 포맷)</span>
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-normal">직접 편집 가능</span>
+                            </div>
+                            <textarea
+                              rows={2}
+                              value={item.scoring_guideline || ''}
+                              onChange={(e) => handleUpdateCriterion(index, 'scoring_guideline', e.target.value)}
+                              placeholder={`점수 산정 가이드라인 (예: ${item.max_score}점: 우수, ${Math.floor(item.max_score / 2)}점: 보통, 0점: 미수행)`}
+                              className="w-full p-2 bg-white border border-slate-200 focus:border-blue-500 rounded-lg text-[11px] text-slate-700 leading-relaxed resize-y focus:outline-hidden"
+                            />
+                          </div>
+
+                          {/* Score Scale Chips */}
+                          <div className="pt-0.5 flex items-center gap-1 flex-wrap">
+                            <span className="text-[10px] font-bold text-slate-400 mr-1">점수 구간:</span>
+                            {Array.from({ length: Math.min(item.max_score + 1, 11) }, (_, i) => i).map((score) => (
+                              <span
+                                key={score}
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold font-mono ${
+                                  score === item.max_score
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : score === 0
+                                    ? 'bg-slate-200 text-slate-600'
+                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                }`}
+                              >
+                                {score}점
+                              </span>
+                            ))}
+                            {item.max_score > 10 && (
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                ... +{item.max_score - 10}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Criteria items list matching mockup */}
-                <div className="space-y-3 mt-4">
-                  
-                  {/* Item 1 */}
-                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
-                          1
-                        </span>
-                        <span className="text-xs font-bold text-slate-900">Problem Formulation</span>
-                        <span className="text-xs text-slate-700 font-bold">20 points</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
-                        Concept &amp; Framing
-                      </span>
-                    </div>
-                    <div className="pl-8 space-y-1.5 text-xs text-slate-700 font-medium">
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Clearly defines the learning problem and target variable (10 pts)</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Justifies the choice of evaluation metric(s) (10 pts)</span>
-                      </div>
-                    </div>
+                {parsedCriteria.length > 0 && (
+                  <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600">
+                      총 {parsedCriteria.length}개 세부 평가 기준 준비 완료 (편집 내용 반영됨)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => router.push(selectedBatchId ? `/grading?batchId=${selectedBatchId}` : '/grading')}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors"
+                    >
+                      <span>채점 화면으로 이동</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-
-                  {/* Item 2 */}
-                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
-                          2
-                        </span>
-                        <span className="text-xs font-bold text-slate-900">Data Analysis</span>
-                        <span className="text-xs text-slate-700 font-bold">20 points</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-semibold">
-                        Data &amp; EDA
-                      </span>
-                    </div>
-                    <div className="pl-8 space-y-1.5 text-xs text-slate-700 font-medium">
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Explores and summarizes key patterns in the data (10 pts)</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Identifies potential data issues (missing values, imbalance) (10 pts)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Item 3 */}
-                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
-                          3
-                        </span>
-                        <span className="text-xs font-bold text-slate-900">Model Implementation</span>
-                        <span className="text-xs text-slate-700 font-bold">25 points</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-                        Implementation
-                      </span>
-                    </div>
-                    <div className="pl-8 space-y-1.5 text-xs text-slate-700 font-medium">
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Correctly implements the required model(s) (15 pts)</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Code is clean, modular, and well-documented (10 pts)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Item 4 */}
-                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
-                          4
-                        </span>
-                        <span className="text-xs font-bold text-slate-900">Results and Evaluation</span>
-                        <span className="text-xs text-slate-700 font-bold">25 points</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold">
-                        Analysis &amp; Insight
-                      </span>
-                    </div>
-                    <div className="pl-8 space-y-1.5 text-xs text-slate-700 font-medium">
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Reports results with appropriate metrics and visualizations (15 pts)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Item 5 */}
-                  <div className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
-                          5
-                        </span>
-                        <span className="text-xs font-bold text-slate-900">Conclusion</span>
-                        <span className="text-xs text-slate-700 font-bold">10 points</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 border border-pink-200 font-semibold">
-                        Communication
-                      </span>
-                    </div>
-                    <div className="pl-8 space-y-1.5 text-xs text-slate-700 font-medium">
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Summarizes key findings (5 pts)</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <input type="checkbox" defaultChecked className="mt-0.5 rounded text-blue-600" />
-                        <span>Discusses limitations and possible improvements (5 pts)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
+                )}
               </div>
 
-              {/* 3. Consistency Health & Batch Information (3 cols) */}
+              {/* 3. Consistency Health (3 cols) */}
               <div className="lg:col-span-3 space-y-5">
-                
-                {/* Rubric Consistency Health Card */}
                 <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 space-y-3.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
@@ -754,7 +1063,6 @@ function UploadContent() {
                     </span>
                   </div>
 
-                  {/* 5x5 Rubric Determinism Validation Button */}
                   <div className="space-y-1.5 pt-1">
                     <button
                       type="button"
@@ -764,99 +1072,8 @@ function UploadContent() {
                       <Scale className="w-4 h-4 text-slate-300 group-hover:scale-105 transition-transform" />
                       <span>Validate Rubric Criteria (5&times;5 Test)</span>
                     </button>
-                    <p className="text-[10px] text-slate-700 text-center font-medium">
-                      Verifies whether each rubric criterion produces reproducible marks across 5 samples &times; 5 runs
-                    </p>
-                  </div>
-
-                  <div className="space-y-3 pt-2 border-t border-slate-100">
-                    <div className="flex items-start gap-2.5 text-xs">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-bold text-slate-900">Pre-Grading Validation Passed</div>
-                        <div className="text-[11px] text-slate-700 font-medium mt-0.5">Your rubric is clear and well-structured.</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2.5 text-xs">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-bold text-slate-900">Rubric structure detected</div>
-                        <div className="text-[11px] text-slate-700 font-medium mt-0.5">5 criteria, 10 sub-criteria.</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2.5 text-xs">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-bold text-slate-900">Point values consistent</div>
-                        <div className="text-[11px] text-slate-700 font-medium mt-0.5">Total: 100 points.</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2.5 text-xs">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-bold text-slate-900">Criteria are specific and measurable</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-2.5 text-xs p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-bold text-amber-900">1 ambiguous criterion flagged</div>
-                        <div className="text-[11px] text-amber-700 font-medium mt-0.5">
-                          Consider adding more detail for &ldquo;possible improvements&rdquo; in the Conclusion section.
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
-
-                {/* Batch Information */}
-                <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 space-y-3">
-                  <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                    <BookOpen className="w-4 h-4 text-blue-600" />
-                    <span>Batch Information</span>
-                  </div>
-
-                  <div>
-                    <div className="text-xs font-bold text-slate-900">Weekly Assignment Batch</div>
-                    <div className="text-xs text-slate-700 font-medium">CS 229 &mdash; Machine Learning</div>
-                    <div className="text-xs text-slate-700">Homework 3: Model Evaluation</div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-700 font-medium">500 students detected</span>
-                      <span className="font-bold text-emerald-800 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100">
-                        Ready
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-700 font-medium">Parsed into 5 criteria (100 pts)</span>
-                      <span className="font-bold text-emerald-800 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100">
-                        Ready
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-700 font-medium">Auto-save active</span>
-                      <span className="font-bold text-emerald-800 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100">
-                        On
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bottom Proceed Button */}
-                <Link
-                  href="/grading"
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2 group"
-                >
-                  <span>Proceed to AI Grading</span>
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </Link>
-
               </div>
 
             </div>
@@ -873,6 +1090,137 @@ function UploadContent() {
         onProceedToGrading={() => router.push('/grading')}
       />
 
+      {/* Modal: View Extracted/Parsed Text from Local Storage */}
+      {parsedModalDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {parsedModalDetail.file_name}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    Student ID: {parsedModalDetail.student_id} &bull; Status: {parsedModalDetail.status}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setParsedModalDetail(null)}
+                className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body: Local Storage Path & Cleaned Text */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+              <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="font-bold text-emerald-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Saved to Local Storage on Backend</span>
+                  </div>
+                  <p className="font-mono text-[11px] text-emerald-800 break-all">
+                    {parsedModalDetail.local_parsed_path}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyParsedToClipboard(parsedModalDetail.parsed_text)}
+                  className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 font-bold text-[11px] shrink-0 flex items-center gap-1 transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{isCopied ? 'Copied!' : 'Copy Text'}</span>
+                </button>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Cleaned Lightweight Text (Pure AI Evaluation Payload):
+                </label>
+                <pre className="p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs leading-relaxed max-h-[45vh] overflow-y-auto whitespace-pre-wrap select-text">
+                  {parsedModalDetail.parsed_text || '(Empty text extracted)'}
+                </pre>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setParsedModalDetail(null)}
+                className="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Single PDF Lightweight Test Result */}
+      {singlePdfResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-5 h-5 text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Real-time PDF Lightweighting Test Result
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSinglePdfResult(null)}
+                className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
+                  <div className="text-[10px] text-blue-600 uppercase font-bold">Total Pages</div>
+                  <div className="text-lg font-black text-blue-900">{singlePdfResult.total_pages}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                  <div className="text-[10px] text-emerald-600 uppercase font-bold">Size Reduction</div>
+                  <div className="text-lg font-black text-emerald-900">{singlePdfResult.compression_ratio_percent}%</div>
+                </div>
+                <div className="p-3 rounded-xl bg-purple-50 border border-purple-100">
+                  <div className="text-[10px] text-purple-600 uppercase font-bold">Word Count</div>
+                  <div className="text-lg font-black text-purple-900">{singlePdfResult.total_words.toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Extracted Clean Text:</label>
+                <pre className="p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs leading-relaxed max-h-[35vh] overflow-y-auto whitespace-pre-wrap select-text">
+                  {singlePdfResult.cleaned_text}
+                </pre>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSinglePdfResult(null)}
+                className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Action / Toast Notification */}
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
     </div>
@@ -886,4 +1234,3 @@ export default function UploadPage() {
     </Suspense>
   );
 }
-
