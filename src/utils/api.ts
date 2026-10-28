@@ -22,6 +22,7 @@ export interface BatchItem {
 
 export interface SubmissionFileItem {
   id: string;
+  batch_id?: string;
   student_id: string;
   student_name: string;
   file_name: string;
@@ -94,11 +95,13 @@ export async function fetchBatches(): Promise<BatchItem[]> {
  * 백엔드에서 ZIP 압축 해제 후 PDF 파일들을 경량화 파싱하여 storage/parsed에 저장합니다.
  */
 export async function uploadLmsZip(
-  batchId: string,
+  batchId: string | undefined,
   zipFile: File
 ): Promise<GenericApiResponse<SubmissionFileItem[]>> {
   const formData = new FormData();
-  formData.append('batch_id', batchId);
+  if (batchId && batchId !== 'new') {
+    formData.append('batch_id', batchId);
+  }
   formData.append('file', zipFile);
 
   const res = await fetch(`${API_BASE_URL}/uploads/zip`, {

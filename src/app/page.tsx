@@ -80,7 +80,6 @@ function DashboardContent() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<BatchLifecycleKey>('all');
-  const [selectedCourse, setSelectedCourse] = useState<string>('all');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -106,20 +105,15 @@ function DashboardContent() {
   const filteredBatches = batches.filter((batch) => {
     const matchesSearch =
       batch.assignment_title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      batch.course_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      batch.course_title.toLowerCase().includes(searchQuery.toLowerCase());
+      batch.id.toLowerCase().includes(searchQuery.toLowerCase());
 
     let matchesStatus = true;
     if (statusFilter !== 'all') {
       matchesStatus = getBatchLifecycle(batch.status).key === statusFilter;
     }
 
-    const matchesCourse = selectedCourse === 'all' || batch.course_code === selectedCourse;
-
-    return matchesSearch && matchesStatus && matchesCourse;
+    return matchesSearch && matchesStatus;
   });
-
-  const availableCourses = Array.from(new Set(batches.map((b) => b.course_code)));
 
   const handleManualRefresh = async () => {
     try {
@@ -275,31 +269,18 @@ function DashboardContent() {
             ))}
           </div>
 
-          {/* Search & Course Dropdown */}
+          {/* Search Bar */}
           <div className="flex items-center gap-3">
-            <div className="relative flex-1 sm:w-64">
+            <div className="relative flex-1 sm:w-72">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search batch or assignment..."
+                placeholder="과제명 또는 Batch ID 검색..."
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white text-slate-800"
               />
             </div>
-
-            <select
-              value={selectedCourse}
-              onChange={(e) => setSelectedCourse(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Courses</option>
-              {availableCourses.map((code) => (
-                <option key={code} value={code}>
-                  {code}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
 
@@ -346,12 +327,6 @@ function DashboardContent() {
                   {/* Top strip banner */}
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200/80">
-                          {batch.course_code}
-                        </span>
-                        <span className="text-xs text-slate-700 font-semibold">{batch.course_title}</span>
-                      </div>
                       <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
                         {batch.assignment_title}
                       </h3>

@@ -56,6 +56,7 @@ function GradingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const urlBatchId = searchParams.get('batchId');
+  const urlSubmissionId = searchParams.get('submissionId');
 
   const { selectedBatchId, selectBatch } = useBatchStore();
   const [effectiveBatchId, setEffectiveBatchId] = useState<string | null>(urlBatchId || selectedBatchId || null);
@@ -128,7 +129,16 @@ function GradingContent() {
       const fileList = await fetchBatchFiles(batchId);
       setFiles(fileList);
       if (fileList.length > 0) {
-        setCurrentStudentIdx(0);
+        let targetIdx = 0;
+        if (urlSubmissionId) {
+          const foundIdx = fileList.findIndex(
+            (f) => f.id === urlSubmissionId || f.student_id === urlSubmissionId || f.student_name === urlSubmissionId
+          );
+          if (foundIdx !== -1) {
+            targetIdx = foundIdx;
+          }
+        }
+        setCurrentStudentIdx(targetIdx);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -137,7 +147,19 @@ function GradingContent() {
     } finally {
       setIsLoadingFiles(false);
     }
-  }, []);
+  }, [urlSubmissionId]);
+
+  // Synchronize student index when urlSubmissionId changes
+  useEffect(() => {
+    if (urlSubmissionId && files.length > 0) {
+      const foundIdx = files.findIndex(
+        (f) => f.id === urlSubmissionId || f.student_id === urlSubmissionId || f.student_name === urlSubmissionId
+      );
+      if (foundIdx !== -1 && foundIdx !== currentStudentIdx) {
+        setCurrentStudentIdx(foundIdx);
+      }
+    }
+  }, [urlSubmissionId, files, currentStudentIdx]);
 
   useEffect(() => {
     if (effectiveBatchId) {
@@ -198,8 +220,14 @@ function GradingContent() {
   }, [currentFile, loadStudentData]);
 
   // Calculations
-  const currentTotalScore = criteria.reduce((sum, c) => sum + (c.assigned_score || 0), 0);
-  const maxPossibleScore = criteria.reduce((sum, c) => sum + (c.max_score || 0), 0) || 100;
+  const currentTotalScore =
+    criteria.length > 0
+      ? criteria.reduce((sum, c) => sum + (c.assigned_score || 0), 0)
+      : (gradingDetail?.total_score ?? 0);
+  const maxPossibleScore =
+    criteria.length > 0
+      ? (criteria.reduce((sum, c) => sum + (c.max_score || 0), 0) || (gradingDetail?.max_possible_score ?? 100))
+      : (gradingDetail?.max_possible_score ?? 100);
   const scorePercent = maxPossibleScore > 0 ? (currentTotalScore / maxPossibleScore) * 100 : 0;
 
   // Confetti celebration trigger
@@ -351,7 +379,14 @@ function GradingContent() {
     try {
       setIsFinalizing(true);
       await finalizeBatchGrading(effectiveBatchId);
-      router.push(effectiveBatchId ? `/confidence?batchId=${effectiveBatchId}` : '/confidence');
+      showToast('✓ 과제 전체 채점이 최종 확정되었습니다. Finalize 탭으로 이동합니다.');
+
+      const targetUrl = effectiveBatchId ? `/confidence?batchId=${effectiveBatchId}` : '/confidence';
+      // Next.js 라우팅 시도 및 확실한 브라우저 이동 보장
+      router.push(targetUrl);
+      setTimeout(() => {
+        window.location.href = targetUrl;
+      }, 150);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast(`❌ 채점 확정 실패: ${msg}`);
@@ -447,13 +482,13 @@ function GradingContent() {
           {!isLoadingFiles && files.length > 0 && currentFile && (
             <div className="flex flex-wrap items-center gap-3">
               {/* Top Quick Actions (상단으로 올린 전체 확정 및 자동 확정 버튼) */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 {/* 1. High-Confidence 자동 채점 확정 버튼 */}
                 <button
                   type="button"
                   onClick={handleAutoApproveHighConfidence}
                   disabled={isAutoApproving}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs hover:shadow-xs disabled:opacity-50"
+                  className="px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs hover:shadow-xs disabled:opacity-50 whitespace-nowrap shrink-0"
                   title="AI 신뢰도가 높은(HIGH 또는 80% 이상) 모든 과제를 일괄 조교 채점 확정합니다"
                 >
                   {isAutoApproving ? (
@@ -469,7 +504,7 @@ function GradingContent() {
                   type="button"
                   onClick={handleFinalizeAll}
                   disabled={isFinalizing}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-500/20 transition-all hover:scale-[1.02] flex items-center gap-1.5 disabled:opacity-60"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-500/20 transition-all hover:scale-[1.02] flex items-center gap-1.5 disabled:opacity-60 whitespace-nowrap shrink-0"
                   title="과제 배치의 채점을 최종 확정하고 검토 큐로 이동합니다"
                 >
                   {isFinalizing ? (
@@ -526,33 +561,10 @@ function GradingContent() {
                     <span className="text-blue-600 font-bold">(TA Editable)</span>
                   </div>
                   <div className="text-base font-extrabold text-slate-900 leading-none mt-0.5 font-mono">
-                    {currentTotalScore}{' '}
+                    <span>{currentTotalScore}</span>
                     <span className="text-xs text-slate-700 font-bold">/ {maxPossibleScore}</span>
+                    <span className="text-[11px] font-semibold text-slate-500 font-sans">({Math.round(scorePercent)}%)</span>
                   </div>
-                </div>
-
-                {/* Score Tier Badge (calculated by percentage) */}
-                <div>
-                  {scorePercent >= 90 && (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200/70">
-                      Excellent
-                    </span>
-                  )}
-                  {scorePercent >= 80 && scorePercent < 90 && (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200/70">
-                      Good
-                    </span>
-                  )}
-                  {scorePercent >= 70 && scorePercent < 80 && (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200/70">
-                      Average
-                    </span>
-                  )}
-                  {scorePercent < 70 && (
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200/70">
-                      Needs Review
-                    </span>
-                  )}
                 </div>
 
                 {/* Prominent Human TA Review Status Badge */}
@@ -1127,6 +1139,22 @@ function GradingContent() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Empty Criteria State Fallback */}
+              {!isLoadingStudent && !studentError && criteria.length === 0 && (
+                <div className="py-12 px-6 rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-center space-y-3">
+                  <p className="text-xs font-semibold text-slate-600">
+                    세부 루브릭 채점 항목을 불러오지 못했거나 동기화 중입니다.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => currentFile && loadStudentData(currentFile)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs transition"
+                  >
+                    <span>채점 결과 다시 불러오기</span>
+                  </button>
                 </div>
               )}
 

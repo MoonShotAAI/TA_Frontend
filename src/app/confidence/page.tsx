@@ -525,7 +525,7 @@ function ConfidenceQueueContent() {
                             </td>
                             <td className="py-3 px-3 text-right">
                               <Link
-                                href={`/grading?batchId=${effectiveBatchId}`}
+                                href={`/grading?batchId=${effectiveBatchId}&submissionId=${item.submission_id}`}
                                 onClick={(e) => e.stopPropagation()}
                                 className="text-blue-600 hover:text-blue-800 text-[11px] font-bold p-1 rounded hover:bg-blue-50 inline-flex items-center gap-1"
                               >
@@ -714,7 +714,7 @@ function ConfidenceQueueContent() {
                   {/* Actions: Open Full Evaluation & Grade */}
                   <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
                     <Link
-                      href={`/grading?batchId=${effectiveBatchId}`}
+                      href={`/grading?batchId=${effectiveBatchId}&submissionId=${selectedItem.submission_id}`}
                       className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2 group"
                     >
                       <span>Open Full Evaluation &amp; Grade</span>

@@ -206,48 +206,49 @@ function UploadContent() {
         if (batchList && batchList.length > 0) {
           setBatches(batchList);
 
-          // Resolve active batch ID
-          const effectiveId =
-            batchParam && batchList.some((b) => b.id === batchParam)
-              ? batchParam
-              : selectedBatchId && batchList.some((b) => b.id === selectedBatchId)
-              ? selectedBatchId
-              : batchList[0].id;
+          // If a specific batchId is provided in URL, load that batch's data
+          if (batchParam && batchList.some((b) => b.id === batchParam)) {
+            setSelectedBatchId(batchParam);
 
-          setSelectedBatchId(effectiveId);
+            const curBatch = batchList.find((b) => b.id === batchParam);
+            if (curBatch?.assignment_title) {
+              setAssignmentTitle(curBatch.assignment_title);
+            }
 
-          const curBatch = batchList.find((b) => b.id === effectiveId);
-          if (curBatch?.assignment_title) {
-            setAssignmentTitle(curBatch.assignment_title);
-          }
-
-          // Always fetch and display files for the active batch
-          const backendFiles = await fetchBatchFiles(effectiveId);
-          if (backendFiles && backendFiles.length > 0) {
-            mapAndSetFiles(backendFiles);
-          } else {
-            setFiles([]);
-          }
-
-          // Fetch existing rubric criteria if already created for this specific batch
-          try {
-            const rub = await fetchRubricByBatch(effectiveId);
-            if (rub && rub.criteria && rub.criteria.length > 0) {
-              setParsedCriteria(rub.criteria);
-              setTotalRubricPoints(rub.total_points || 0);
-              if (rub.raw_text) setRubricText(rub.raw_text);
-              if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
+            const backendFiles = await fetchBatchFiles(batchParam);
+            if (backendFiles && backendFiles.length > 0) {
+              mapAndSetFiles(backendFiles);
             } else {
+              setFiles([]);
+            }
+
+            try {
+              const rub = await fetchRubricByBatch(batchParam);
+              if (rub && rub.criteria && rub.criteria.length > 0) {
+                setParsedCriteria(rub.criteria);
+                setTotalRubricPoints(rub.total_points || 0);
+                if (rub.raw_text) setRubricText(rub.raw_text);
+                if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
+              } else {
+                setParsedCriteria([]);
+                setTotalRubricPoints(0);
+              }
+            } catch {
               setParsedCriteria([]);
               setTotalRubricPoints(0);
             }
-          } catch {
+          } else {
+            // Default to 'new' clean batch registration mode (no old files cluttering the view)
+            setSelectedBatchId('new');
+            setFiles([]);
+            setAssignmentTitle('');
+            setRubricText('');
             setParsedCriteria([]);
             setTotalRubricPoints(0);
           }
         } else {
           setBatches([]);
-          setSelectedBatchId('');
+          setSelectedBatchId('new');
           setFiles([]);
           setParsedCriteria([]);
           setTotalRubricPoints(0);
@@ -291,7 +292,8 @@ function UploadContent() {
       setIsUploadingZip(true);
       setUploadStatusMessage(`Uploading "${file.name}" & extracting documents to storage/parsed...`);
 
-      const res = await uploadLmsZip(selectedBatchId || (undefined as any), file);
+      const targetBatch = selectedBatchId === 'new' ? undefined : selectedBatchId;
+      const res = await uploadLmsZip(targetBatch, file);
       showToast(`🎉 ${res.message}`);
 
       if (res.data && res.data.length > 0) {
@@ -304,9 +306,9 @@ function UploadContent() {
         setBatches(updatedBatches);
         const targetBatchId =
           (res.data && res.data.length > 0 && (res.data[0] as any).batch_id) ||
-          selectedBatchId ||
-          updatedBatches[0].id;
+          (selectedBatchId !== 'new' ? selectedBatchId : updatedBatches[0].id);
         setSelectedBatchId(targetBatchId);
+        router.replace(`/upload?batchId=${targetBatchId}`);
 
         const updatedFiles = await fetchBatchFiles(targetBatchId);
         if (updatedFiles && updatedFiles.length > 0) {
@@ -464,32 +466,78 @@ function UploadContent() {
                     </div>
                   </div>
 
-                  {/* Batch Selector if multiple batches exist */}
-                  {batches.length > 0 && (
-                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs">
+                  {/* Batch Selector and New Batch Switcher */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs shadow-2xs">
                       <span className="font-semibold text-slate-600">Target Batch:</span>
                       <select
                         value={selectedBatchId}
                         onChange={async (e) => {
                           const newBId = e.target.value;
                           setSelectedBatchId(newBId);
+                          if (newBId === 'new') {
+                            setFiles([]);
+                            setAssignmentTitle('');
+                            setRubricText('');
+                            setParsedCriteria([]);
+                            setTotalRubricPoints(0);
+                            router.replace('/upload');
+                            return;
+                          }
                           try {
                             const bFiles = await fetchBatchFiles(newBId);
                             mapAndSetFiles(bFiles);
+                            const cur = batches.find((b) => b.id === newBId);
+                            if (cur?.assignment_title) setAssignmentTitle(cur.assignment_title);
+                            router.replace(`/upload?batchId=${newBId}`);
+                            try {
+                              const rub = await fetchRubricByBatch(newBId);
+                              if (rub && rub.criteria && rub.criteria.length > 0) {
+                                setParsedCriteria(rub.criteria);
+                                setTotalRubricPoints(rub.total_points || 0);
+                                if (rub.raw_text) setRubricText(rub.raw_text);
+                              } else {
+                                setParsedCriteria([]);
+                                setTotalRubricPoints(0);
+                              }
+                            } catch {
+                              setParsedCriteria([]);
+                              setTotalRubricPoints(0);
+                            }
                           } catch (err) {
                             console.error(err);
                           }
                         }}
-                        className="bg-transparent font-bold text-blue-700 focus:outline-hidden"
+                        className="bg-transparent font-bold text-blue-700 focus:outline-hidden cursor-pointer"
                       >
+                        <option value="new">+ 신규 과제 배치 생성 (새 ZIP 업로드)</option>
                         {batches.map((b) => (
                           <option key={b.id} value={b.id}>
-                            {b.course_code} - {b.assignment_title}
+                            {b.assignment_title} ({b.total_submissions}건)
                           </option>
                         ))}
                       </select>
                     </div>
-                  )}
+
+                    {selectedBatchId !== 'new' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBatchId('new');
+                          setFiles([]);
+                          setAssignmentTitle('');
+                          setRubricText('');
+                          setParsedCriteria([]);
+                          setTotalRubricPoints(0);
+                          router.replace('/upload');
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition shadow-2xs"
+                        title="신규 과제 배치 등록 모드로 전환"
+                      >
+                        <span>+ 새 과제 등록</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Drag and Drop Box */}
