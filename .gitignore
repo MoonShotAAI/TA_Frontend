@@ -1,6 +1,24 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ==========================================
+# TA_Frontend .gitignore
+# ==========================================
 
-# dependencies
+# 1. Databases (Local DB files if created)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 2. Local Storage & Uploaded/Extracted Student Files
+storage/
+storage/*
+!storage/**/.gitkeep
+test_dataset_docx/
+test_submissions_*.zip
+*.zip
+
+# 3. Dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -10,32 +28,37 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# 4. Next.js & Build Outputs
 /.next/
 /out/
-
-# production
 /build
+/dist
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
-.DS_Store
-*.pem
+# 5. Testing & Coverage
+/coverage
 
-# debug
+# 6. Environment Variables
+.env
+.env*.local
+.env*
+!.env.example
+
+# 7. Vercel
+.vercel
+
+# 8. Logs & Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# 9. IDE & OS Metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*.pem

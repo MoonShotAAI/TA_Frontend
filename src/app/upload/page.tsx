@@ -52,6 +52,7 @@ import {
   ParsedFileDetail,
   PDFLightweightResult,
   RubricCriterionItem,
+  startBatchGrading,
 } from '@/utils/api';
 
 interface UploadedFileDisplay {
@@ -105,9 +106,32 @@ function UploadContent() {
   const [totalRubricPoints, setTotalRubricPoints] = useState<number>(0);
   const [isParsingRubric, setIsParsingRubric] = useState(false);
   const [is5x5ModalOpen, setIs5x5ModalOpen] = useState(false);
+  const [isSubmittingGrading, setIsSubmittingGrading] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
+  };
+
+  const handleStartGrading = async () => {
+    try {
+      setIsSubmittingGrading(true);
+      showToast('AI 채점 요청이 전송되었습니다');
+
+      if (selectedBatchId) {
+        await startBatchGrading({
+          batch_id: selectedBatchId,
+          assignment_title: assignmentTitle.trim() || undefined,
+          criteria: parsedCriteria.length > 0 ? parsedCriteria : undefined,
+        });
+      }
+
+      // Grading 화면으로 가는 대신 메인 화면으로 이동
+      router.push('/?toast=grading_started');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`❌ 채점 요청 실패: ${msg}`);
+      setIsSubmittingGrading(false);
+    }
   };
 
   // Human editing handlers for AI-structured checklist
@@ -181,43 +205,52 @@ function UploadContent() {
         const batchList = await fetchBatches();
         if (batchList && batchList.length > 0) {
           setBatches(batchList);
-          // Only auto-load batch data and rubric if batchParam is explicitly passed in URL
-          if (batchParam && batchList.some((b) => b.id === batchParam)) {
-            setSelectedBatchId(batchParam);
 
-            const curBatch = batchList.find((b) => b.id === batchParam);
-            if (curBatch?.assignment_title) {
-              setAssignmentTitle(curBatch.assignment_title);
-            }
+          // Resolve active batch ID
+          const effectiveId =
+            batchParam && batchList.some((b) => b.id === batchParam)
+              ? batchParam
+              : selectedBatchId && batchList.some((b) => b.id === selectedBatchId)
+              ? selectedBatchId
+              : batchList[0].id;
 
-            const backendFiles = await fetchBatchFiles(batchParam);
-            if (backendFiles && backendFiles.length > 0) {
-              mapAndSetFiles(backendFiles);
-            } else {
-              setFiles([]);
-            }
+          setSelectedBatchId(effectiveId);
 
-            // Fetch existing rubric criteria if already created for this specific batch
-            try {
-              const rub = await fetchRubricByBatch(batchParam);
-              if (rub && rub.criteria && rub.criteria.length > 0) {
-                setParsedCriteria(rub.criteria);
-                setTotalRubricPoints(rub.total_points || 0);
-                if (rub.raw_text) setRubricText(rub.raw_text);
-                if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
-              }
-            } catch {
-              // No saved rubric for this batch yet
-            }
+          const curBatch = batchList.find((b) => b.id === effectiveId);
+          if (curBatch?.assignment_title) {
+            setAssignmentTitle(curBatch.assignment_title);
+          }
+
+          // Always fetch and display files for the active batch
+          const backendFiles = await fetchBatchFiles(effectiveId);
+          if (backendFiles && backendFiles.length > 0) {
+            mapAndSetFiles(backendFiles);
           } else {
-            // No explicit batchParam: keep fields clean and empty!
-            setSelectedBatchId(batchList[0]?.id || '');
             setFiles([]);
+          }
+
+          // Fetch existing rubric criteria if already created for this specific batch
+          try {
+            const rub = await fetchRubricByBatch(effectiveId);
+            if (rub && rub.criteria && rub.criteria.length > 0) {
+              setParsedCriteria(rub.criteria);
+              setTotalRubricPoints(rub.total_points || 0);
+              if (rub.raw_text) setRubricText(rub.raw_text);
+              if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
+            } else {
+              setParsedCriteria([]);
+              setTotalRubricPoints(0);
+            }
+          } catch {
+            setParsedCriteria([]);
+            setTotalRubricPoints(0);
           }
         } else {
           setBatches([]);
           setSelectedBatchId('');
           setFiles([]);
+          setParsedCriteria([]);
+          setTotalRubricPoints(0);
         }
       } catch (err) {
         console.warn('Backend not reachable or running demo mockups:', err);
@@ -261,15 +294,26 @@ function UploadContent() {
       const res = await uploadLmsZip(selectedBatchId || (undefined as any), file);
       showToast(`🎉 ${res.message}`);
 
+      if (res.data && res.data.length > 0) {
+        mapAndSetFiles(res.data);
+      }
+
       // Refresh batches from backend to get newly created or updated batch
       const updatedBatches = await fetchBatches();
       if (updatedBatches && updatedBatches.length > 0) {
         setBatches(updatedBatches);
-        const activeId = selectedBatchId || updatedBatches[0].id;
-        setSelectedBatchId(activeId);
-        const updatedFiles = await fetchBatchFiles(activeId);
-        mapAndSetFiles(updatedFiles);
-        const cur = updatedBatches.find((b) => b.id === activeId);
+        const targetBatchId =
+          (res.data && res.data.length > 0 && (res.data[0] as any).batch_id) ||
+          selectedBatchId ||
+          updatedBatches[0].id;
+        setSelectedBatchId(targetBatchId);
+
+        const updatedFiles = await fetchBatchFiles(targetBatchId);
+        if (updatedFiles && updatedFiles.length > 0) {
+          mapAndSetFiles(updatedFiles);
+        }
+
+        const cur = updatedBatches.find((b) => b.id === targetBatchId);
         if (cur?.assignment_title) setAssignmentTitle(cur.assignment_title);
       }
     } catch (err: unknown) {
@@ -401,10 +445,7 @@ function UploadContent() {
         
         {/* ================= STEP 1: UPLOAD LMS ZIP ================= */}
         {currentStep === 1 && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            {/* Left Main Column: Step 1 Upload & File Table (8 cols) */}
-            <div className="lg:col-span-8 space-y-6">
+          <div className="space-y-6">
               
               {/* Step Header Card */}
               <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-6">
@@ -495,30 +536,20 @@ function UploadContent() {
                     {uploadStatusMessage || 'or choose an archive from your local disk'}
                   </p>
 
-                  <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                  <div className="mt-5 flex items-center justify-center">
                     <button
                       type="button"
                       disabled={isUploadingZip}
                       onClick={handleChooseZip}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg hover:shadow-blue-500/30 disabled:opacity-60 flex items-center gap-2"
+                      className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg hover:shadow-blue-500/30 disabled:opacity-60 flex items-center gap-2"
                     >
                       {isUploadingZip && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       <span>Choose ZIP Archive</span>
                     </button>
-
-                    <button
-                      type="button"
-                      disabled={isTestingPdf}
-                      onClick={() => singlePdfInputRef.current?.click()}
-                      className="px-4 py-2.5 rounded-xl bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-2xs transition-all flex items-center gap-1.5"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Test Single PDF Parser</span>
-                    </button>
                   </div>
 
                   <p className="text-[11px] text-slate-600 mt-4 font-medium">
-                    ⚡ PDF files will automatically have headers/footers removed and saved to <code>storage/parsed/</code>
+                    ⚡ LMS ZIP 내의 과제 파일(PDF, DOCX 등)을 자동으로 추출하여 경량화 파싱합니다.
                   </p>
                 </div>
               </div>
@@ -637,83 +668,6 @@ function UploadContent() {
                 </div>
               </div>
 
-            </div>
-
-            {/* Right Side Column: Batch Information & Tips (4 cols) */}
-            <div className="lg:col-span-4 space-y-6">
-              
-              {/* Batch Information Card */}
-              <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 space-y-4">
-                <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                  <BookOpen className="w-4 h-4 text-blue-600" />
-                  <span>Active Batch Information</span>
-                </div>
-
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Weekly Assignment Batch</div>
-                  <div className="text-xs text-slate-700 font-medium mt-0.5">
-                    CS 229 &mdash; Machine Learning
-                  </div>
-                  <div className="text-xs text-slate-700">Homework 3: Model Evaluation</div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 space-y-2.5">
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                        <Users className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">{files.length} Submissions</div>
-                        <div className="text-[11px] text-slate-700 font-medium">Ready for AI Grading</div>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      Ready
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
-                        <FileText className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">PDF Lightweighting</div>
-                        <div className="text-[11px] text-slate-700 font-medium">Saved to storage/parsed/</div>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      Active
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Tips Card */}
-              <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5">
-                <div className="flex items-center gap-2 text-slate-900 font-bold text-sm mb-3">
-                  <Info className="w-4 h-4 text-blue-600" />
-                  <span>PDF Parsing Guide</span>
-                </div>
-                <ul className="text-xs text-slate-700 font-medium space-y-2.5 leading-relaxed">
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
-                    <span>ZIP contains student PDF submissions downloaded from Canvas/Gradescope.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
-                    <span>Backend lightweight parser extracts pure text while stripping headers and page numbers.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
-                    <span>Cleaned texts are saved directly to <code>storage/parsed/</code> for prompt injection isolated grading.</span>
-                  </li>
-                </ul>
-              </div>
-
-            </div>
-
           </div>
         )}
 
@@ -745,13 +699,20 @@ function UploadContent() {
                   <ArrowLeft className="w-3.5 h-3.5" />
                   <span>Back to Step 1</span>
                 </button>
-                <Link
-                  href="/grading"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg hover:shadow-blue-500/30 group"
+                <button
+                  type="button"
+                  onClick={handleStartGrading}
+                  disabled={isSubmittingGrading}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
                 >
-                  <span>Proceed to AI Grading</span>
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </Link>
+                  {isSubmittingGrading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 text-blue-200" />
+                  )}
+                  <span>{isSubmittingGrading ? 'AI 채점 요청 중...' : 'AI 채점 시작'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
@@ -1040,10 +1001,16 @@ function UploadContent() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => router.push(selectedBatchId ? `/grading?batchId=${selectedBatchId}` : '/grading')}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors"
+                      onClick={handleStartGrading}
+                      disabled={isSubmittingGrading}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors disabled:opacity-60"
                     >
-                      <span>채점 화면으로 이동</span>
+                      {isSubmittingGrading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-blue-200" />
+                      )}
+                      <span>{isSubmittingGrading ? 'AI 채점 요청 중...' : 'AI 채점 시작'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   FolderKanban,
   UploadCloud,
@@ -24,8 +24,50 @@ import {
 import { TopHeader } from '@/components/TopHeader';
 import { useBatchStore } from '@/context/BatchContext';
 import { Toast } from '@/components/Toast';
-export default function BatchesDashboardPage() {
+
+type BatchLifecycleKey = 'all' | 'pending_rubric' | 'ai_grading' | 'pending_review' | 'completed';
+
+function getBatchLifecycle(status: string) {
+  const s = (status || '').toLowerCase().trim();
+  // 1. zip 파일만 올리고 채점 기준도 확정 안한 경우
+  if (s.includes('rubric') || s.includes('upload') || s === 'uploaded') {
+    return {
+      key: 'pending_rubric' as const,
+      label: '1. 루브릭 미설정',
+      badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+      description: '채점 기준 설정 대기',
+    };
+  }
+  // 2. 채점 기준은 확정했지만 AI가 채점 중인 경우
+  if (s.includes('progress') || s === 'grading') {
+    return {
+      key: 'ai_grading' as const,
+      label: '2. AI 채점 중',
+      badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+      description: 'AI 채점 진행 중',
+    };
+  }
+  // 4. 해당 과제 전체에 대해 사람이 채점을 확정 지은 경우
+  if (s.includes('complete') || s.includes('finalized')) {
+    return {
+      key: 'completed' as const,
+      label: '4. 채점 확정',
+      badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+      description: '사람 검토 및 채점 확정 완료',
+    };
+  }
+  // 3. AI 채점이 완료되었으며, 사람의 검토를 기다리고 있는 경우 (설령 AI의 confidence가 모두 좋더라도 검토필요). (채점중)
+  return {
+    key: 'pending_review' as const,
+    label: '3. 검토 대기 (채점 중)',
+    badgeClass: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    description: 'AI 채점 완료 • 사람 검토 대기',
+  };
+}
+
+function DashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const {
     batches,
@@ -37,24 +79,28 @@ export default function BatchesDashboardPage() {
   } = useBatchStore();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_progress' | 'ready_to_grade' | 'completed'>('all');
+  const [statusFilter, setStatusFilter] = useState<BatchLifecycleKey>('all');
   const [selectedCourse, setSelectedCourse] = useState<string>('all');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  useEffect(() => {
+    if (searchParams.get('toast') === 'grading_started') {
+      setToastMessage('AI 채점 요청이 전송되었습니다');
+      refreshBatches();
+      router.replace('/');
+    } else if (searchParams.get('toast') === 'finalized') {
+      setToastMessage('✓ 해당 과제 전체에 대해 사람이 채점을 최종 확정했습니다 (상태 4 완료)');
+      refreshBatches();
+      router.replace('/');
+    }
+  }, [searchParams, refreshBatches, router]);
 
-
-  // Status Counts
-  const inProgressCount = batches.filter((b) => b.status.toLowerCase().includes('progress')).length;
-  const readyCount = batches.filter(
-    (b) =>
-      b.status.toLowerCase().includes('ready') ||
-      b.status.toLowerCase().includes('review') ||
-      b.status.toLowerCase().includes('upload')
-  ).length;
-  const completedCount = batches.filter(
-    (b) => b.status.toLowerCase().includes('complete') || b.status.toLowerCase().includes('graded')
-  ).length;
+  // 4개 라이프사이클 상태별 카운트 계산
+  const pendingRubricCount = batches.filter((b) => getBatchLifecycle(b.status).key === 'pending_rubric').length;
+  const aiGradingCount = batches.filter((b) => getBatchLifecycle(b.status).key === 'ai_grading').length;
+  const pendingReviewCount = batches.filter((b) => getBatchLifecycle(b.status).key === 'pending_review').length;
+  const completedCount = batches.filter((b) => getBatchLifecycle(b.status).key === 'completed').length;
 
   // Filter Logic
   const filteredBatches = batches.filter((batch) => {
@@ -64,13 +110,8 @@ export default function BatchesDashboardPage() {
       batch.course_title.toLowerCase().includes(searchQuery.toLowerCase());
 
     let matchesStatus = true;
-    const st = batch.status.toLowerCase();
-    if (statusFilter === 'in_progress') {
-      matchesStatus = st.includes('progress');
-    } else if (statusFilter === 'ready_to_grade') {
-      matchesStatus = st.includes('ready') || st.includes('review') || st.includes('upload');
-    } else if (statusFilter === 'completed') {
-      matchesStatus = st.includes('complete') || st.includes('graded');
+    if (statusFilter !== 'all') {
+      matchesStatus = getBatchLifecycle(batch.status).key === statusFilter;
     }
 
     const matchesCourse = selectedCourse === 'all' || batch.course_code === selectedCourse;
@@ -172,45 +213,46 @@ export default function BatchesDashboardPage() {
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-6 h-6" />
+              <Clock className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">TA Review Needed</div>
-              <div className="text-2xl font-bold text-amber-700 mt-0.5">
-                {stats.totalLowConfidence > 0 ? `${stats.totalLowConfidence} Flagged` : '0 Flagged'}
+              <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">3. 검토 대기 (채점 중)</div>
+              <div className="text-2xl font-bold text-indigo-700 mt-0.5">
+                {pendingReviewCount} Batches
               </div>
-              <div className="text-xs text-amber-800 font-medium mt-0.5">
-                {stats.totalLowConfidence > 0 ? 'Low confidence cases' : 'No pending reviews'}
+              <div className="text-xs text-indigo-800 font-medium mt-0.5">
+                {pendingReviewCount > 0 ? 'AI 채점 완료 • 사람 검토 대기' : '대기 과제 없음'}
               </div>
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-              <Sparkles className="w-6 h-6" />
+            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Avg Rubric Health</div>
-              <div className="text-2xl font-bold text-indigo-900 mt-0.5">
-                {stats.avgRubricHealth ? `${stats.avgRubricHealth}%` : '--'}
+              <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">4. 채점 확정 (완료)</div>
+              <div className="text-2xl font-bold text-emerald-900 mt-0.5">
+                {completedCount} Batches
               </div>
               <div className="text-xs text-slate-600 font-medium mt-0.5">
-                {stats.avgRubricHealth ? 'High Stability (σ ≤ 0.20)' : 'No active rubrics'}
+                {completedCount > 0 ? '최종 채점 완료' : '확정 과제 없음'}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Filter and Search Bar */}
+        {/* Filter and Search Bar with 4 Specific Lifecycle Status Tabs */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           
           {/* Status Tabs with Dynamic Real Counts */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
             {[
-              { id: 'all', label: 'All Batches', count: batches.length },
-              { id: 'in_progress', label: 'In Progress', count: inProgressCount },
-              { id: 'ready_to_grade', label: 'Ready to Grade', count: readyCount },
-              { id: 'completed', label: 'Completed', count: completedCount },
+              { id: 'all', label: '전체 (All)', count: batches.length },
+              { id: 'pending_rubric', label: '1. 루브릭 미설정', count: pendingRubricCount },
+              { id: 'ai_grading', label: '2. AI 채점 중', count: aiGradingCount },
+              { id: 'pending_review', label: '3. 검토 대기 (채점 중)', count: pendingReviewCount },
+              { id: 'completed', label: '4. 채점 확정', count: completedCount },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -294,12 +336,7 @@ export default function BatchesDashboardPage() {
               const totalSub = batch.total_submissions || 1;
               const gradedSub = batch.graded_submissions || 0;
               const progressPercent = Math.min(100, Math.round((gradedSub / totalSub) * 100));
-              const isCompleted =
-                batch.status.toLowerCase().includes('completed') ||
-                batch.status.toLowerCase().includes('graded');
-              const isReady =
-                batch.status.toLowerCase().includes('ready') ||
-                batch.status.toLowerCase().includes('review');
+              const lifecycle = getBatchLifecycle(batch.status);
 
               return (
                 <div
@@ -324,22 +361,30 @@ export default function BatchesDashboardPage() {
                       </div>
                     </div>
 
-                    {/* Status Badge & Delete Action */}
+                    {/* Status Badge (4 Specific States) & Delete Action */}
                     <div className="flex items-center gap-2">
-                      {isCompleted ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          Completed
+                      {lifecycle.key === 'pending_rubric' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          <span>1. 루브릭 미설정</span>
                         </span>
-                      ) : isReady ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          Ready to Grade
-                        </span>
-                      ) : (
+                      )}
+                      {lifecycle.key === 'ai_grading' && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                          <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-                          In Progress
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                          <span>2. AI 채점 진행 중</span>
+                        </span>
+                      )}
+                      {lifecycle.key === 'pending_review' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>3. 검토 대기 (채점 중)</span>
+                        </span>
+                      )}
+                      {lifecycle.key === 'completed' && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>4. 채점 확정 (완료)</span>
                         </span>
                       )}
 
@@ -358,7 +403,7 @@ export default function BatchesDashboardPage() {
                   <div className="py-4 border-y border-slate-100 my-2 space-y-3">
                     <div>
                       <div className="flex items-center justify-between text-xs font-semibold mb-1.5">
-                        <span className="text-slate-700">Grading Completion</span>
+                        <span className="text-slate-700">채점 진행 현황</span>
                         <span className="text-slate-900 font-bold">
                           {gradedSub} / {batch.total_submissions} ({progressPercent}%)
                         </span>
@@ -366,11 +411,13 @@ export default function BatchesDashboardPage() {
                       <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-500 ${
-                            isCompleted
+                            lifecycle.key === 'completed'
                               ? 'bg-emerald-500'
-                              : progressPercent > 50
+                              : lifecycle.key === 'pending_review'
+                              ? 'bg-indigo-600'
+                              : lifecycle.key === 'ai_grading'
                               ? 'bg-blue-600'
-                              : 'bg-amber-500'
+                              : 'bg-amber-400'
                           }`}
                           style={{ width: `${progressPercent}%` }}
                         />
@@ -380,54 +427,107 @@ export default function BatchesDashboardPage() {
                     {/* Badges / Metrics Row */}
                     <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                       <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                        <div className="text-[10px] text-slate-700 font-medium">Students</div>
+                        <div className="text-[10px] text-slate-700 font-medium">제출 학생 수</div>
                         <div className="text-xs font-bold text-slate-800 mt-0.5">
-                          {batch.total_submissions} enrolled
+                          {batch.total_submissions}명 제출
                         </div>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                        <div className="text-[10px] text-slate-700 font-medium">Avg Score</div>
+                        <div className="text-[10px] text-slate-700 font-medium">평균 점수</div>
                         <div className="text-xs font-bold text-indigo-700 mt-0.5">
-                          {batch.average_score > 0 ? `${batch.average_score} pts` : '--'}
+                          {batch.average_score > 0 ? `${batch.average_score}점` : '--'}
                         </div>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                        <div className="text-[10px] text-slate-700 font-medium">Low Confidence</div>
+                        <div className="text-[10px] text-slate-700 font-medium">검토 상태</div>
                         <div
                           className={`text-xs font-bold mt-0.5 ${
-                            batch.low_confidence_count > 0
-                              ? 'text-amber-700 font-extrabold'
-                              : 'text-slate-700'
+                            lifecycle.key === 'completed'
+                              ? 'text-emerald-700 font-extrabold'
+                              : lifecycle.key === 'pending_review'
+                              ? 'text-indigo-700 font-extrabold'
+                              : lifecycle.key === 'ai_grading'
+                              ? 'text-blue-700'
+                              : 'text-amber-700'
                           }`}
                         >
-                          {batch.low_confidence_count} cases
+                          {lifecycle.key === 'completed'
+                            ? '최종 확정 완료'
+                            : lifecycle.key === 'pending_review'
+                            ? '사람 검토 대기'
+                            : lifecycle.key === 'ai_grading'
+                            ? 'AI 채점 중'
+                            : '루브릭 미설정'}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Bottom Footer & Action Buttons */}
+                  {/* Bottom Footer & Action Buttons tailored to each state */}
                   <div className="flex items-center justify-between pt-2">
                     <div className="text-xs text-slate-600 font-medium">
-                      Updated: {new Date(batch.updated_at || batch.created_at).toLocaleDateString()}
+                      최근 수정: {new Date(batch.updated_at || batch.created_at).toLocaleDateString()}
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Link
-                        href={`/upload?step=2&batchId=${batch.id}`}
-                        onClick={() => selectBatch(batch.id)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
-                      >
-                        Rubric
-                      </Link>
-                      <Link
-                        href={`/grading?batchId=${batch.id}`}
-                        onClick={() => selectBatch(batch.id)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all group-hover:shadow-md"
-                      >
-                        <span>Continue Grading</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
+                      {lifecycle.key === 'pending_rubric' && (
+                        <Link
+                          href={`/upload?step=2&batchId=${batch.id}`}
+                          onClick={() => selectBatch(batch.id)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition-all hover:scale-[1.02]"
+                        >
+                          <span>루브릭 설정하기</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                      )}
+                      {lifecycle.key === 'ai_grading' && (
+                        <button
+                          type="button"
+                          onClick={handleManualRefresh}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition-colors"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                          <span>AI 채점 중 (새로고침)</span>
+                        </button>
+                      )}
+                      {lifecycle.key === 'pending_review' && (
+                        <>
+                          <Link
+                            href={`/upload?step=2&batchId=${batch.id}`}
+                            onClick={() => selectBatch(batch.id)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+                          >
+                            루브릭
+                          </Link>
+                          <Link
+                            href={`/grading?batchId=${batch.id}`}
+                            onClick={() => selectBatch(batch.id)}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-all hover:scale-[1.02]"
+                          >
+                            <span>채점 검토하기</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </Link>
+                        </>
+                      )}
+                      {lifecycle.key === 'completed' && (
+                        <>
+                          <Link
+                            href={`/upload?step=2&batchId=${batch.id}`}
+                            onClick={() => selectBatch(batch.id)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+                          >
+                            루브릭
+                          </Link>
+                          <Link
+                            href={`/grading?batchId=${batch.id}`}
+                            onClick={() => selectBatch(batch.id)}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all hover:scale-[1.02]"
+                          >
+                            <span>채점 결과 조회</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </Link>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -444,3 +544,12 @@ export default function BatchesDashboardPage() {
     </div>
   );
 }
+
+export default function BatchesDashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+

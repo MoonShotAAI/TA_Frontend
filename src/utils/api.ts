@@ -279,4 +279,217 @@ export async function fetchRubricByBatch(batchId: string): Promise<RubricDetailR
   return res.json();
 }
 
+/**
+ * 12. 배치의 모든 학생 과제에 대해 비동기 AI 채점 요청
+ */
+export async function startBatchGrading(payload: {
+  batch_id: string;
+  assignment_title?: string;
+  criteria?: RubricCriterionItem[];
+  concurrency?: number;
+}): Promise<GenericApiResponse<{ batch_id: string; status: string }>> {
+  const res = await fetch(`${API_BASE_URL}/gradings/batch/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Grading request failed (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * 13. 해당 과제 전체에 대해 사람이 채점 최종 확정 (상태 4: Completed)
+ */
+export async function finalizeBatchGrading(
+  batchId: string
+): Promise<GenericApiResponse<{ batch_id: string; status: string }>> {
+  const res = await fetch(`${API_BASE_URL}/gradings/batch/${batchId}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Finalizing batch failed (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+export interface CriterionGradeItem {
+  id?: string;
+  criterion_id: string;
+  criterion_number: number;
+  title: string;
+  description: string;
+  status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET';
+  assigned_score: number;
+  max_score: number;
+  evidence_quote: string;
+  rationale: string;
+  ta_notes?: string;
+  is_custom_adjusted?: boolean;
+}
+
+export interface StudentGradingDetail {
+  id: string;
+  submission_id: string;
+  student_name: string;
+  student_id: string;
+  file_name: string;
+  total_score: number;
+  max_possible_score: number;
+  confidence_level: 'HIGH' | 'LOW_TA_REVIEW' | string;
+  confidence_percent: number;
+  is_ta_reviewed: boolean;
+  overall_feedback?: string;
+  ta_override_notes?: string;
+  criteria_grades: CriterionGradeItem[];
+  evaluated_at: string;
+}
+
+/**
+ * 14. 특정 학생 과제의 채점 결과, 루브릭 기준별 점수 및 원문 인용문 조회
+ */
+export async function fetchStudentGrading(submissionId: string): Promise<StudentGradingDetail> {
+  const res = await fetch(`${API_BASE_URL}/gradings/student/${submissionId}`, {
+    method: 'GET',
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to fetch student grading (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * 15. 조교(TA)의 특정 기준 점수 및 메모 수동 수정 (DB 동기화)
+ */
+export async function updateCriterionScore(
+  gradingId: string,
+  criterionId: string,
+  payload: {
+    status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET';
+    assigned_score: number;
+    ta_notes?: string;
+  }
+): Promise<GenericApiResponse<CriterionGradeItem>> {
+  const res = await fetch(`${API_BASE_URL}/gradings/${gradingId}/criteria/${criterionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to update score (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+export interface ConfidenceQueueItem {
+  id: string;
+  grading_id?: string | null;
+  submission_id: string;
+  student_id: string;
+  student_name: string;
+  file_name: string;
+  file_size: string;
+  suggested_score: number;
+  max_score: number;
+  confidence: number;
+  review_priority: 'High' | 'Medium' | 'Low';
+  status: 'AI Confident' | 'TA Review Needed' | 'Approved' | 'Pending Grading';
+  ai_explanation: string;
+  cited_evidence_code: string;
+  reasons_for_uncertainty: string[];
+  suggested_action: string;
+  submitted_at: string;
+  is_ta_reviewed: boolean;
+}
+
+export interface ConfidenceQueueResponse {
+  batch_id: string;
+  course_code: string;
+  assignment_title: string;
+  total_submissions: number;
+  graded_submissions: number;
+  low_confidence_count: number;
+  confident_count: number;
+  approved_count: number;
+  average_score: number;
+  status: string;
+  items: ConfidenceQueueItem[];
+}
+
+/**
+ * 16. Step 4: 특정 배치의 AI 신뢰도 점수 및 검토 큐 목록 조회
+ */
+export async function fetchBatchConfidenceQueue(batchId: string): Promise<ConfidenceQueueResponse> {
+  const res = await fetch(`${API_BASE_URL}/gradings/batch/${batchId}/queue`, {
+    method: 'GET',
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to fetch confidence queue (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * 17. 특정 학생 채점 결과 즉시 승인(Quick Approve)
+ */
+export async function approveStudentGrading(
+  gradingId: string
+): Promise<GenericApiResponse<{ grading_id: string; is_ta_reviewed: boolean }>> {
+  const res = await fetch(`${API_BASE_URL}/gradings/${gradingId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to approve grading (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * 18. 성적표 CSV 다운로드 URL 생성
+ */
+export function getBatchCsvExportUrl(batchId: string): string {
+  return `${API_BASE_URL}/gradings/batch/${batchId}/export/csv`;
+}
+
+
+
+/**
+ * 19. 배치 내 High-Confidence 항목 일괄 자동 채점 확정
+ */
+export async function autoApproveHighConfidence(
+  batchId: string
+): Promise<GenericApiResponse<{ batch_id: string; approved_count: number }>> {
+  const res = await fetch(`${API_BASE_URL}/gradings/batch/${batchId}/auto-approve-high-confidence`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Auto-approving high confidence failed (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
