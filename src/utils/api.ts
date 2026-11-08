@@ -496,3 +496,84 @@ export async function autoApproveHighConfidence(
 
   return res.json();
 }
+
+export interface SampleRunBreakdown {
+  sample_name: string;
+  file_name: string;
+  run_verdicts: string[];
+  scores: number[];
+  is_deterministic: boolean;
+}
+
+export interface CriterionConsistencyItem {
+  id: string;
+  number: number;
+  title: string;
+  category: string;
+  max_score: number;
+  consistency_rate: number;
+  verdict_stability: string; // 'Deterministic' | 'Minor Variance' | 'Ambiguous'
+  variance: number;
+  ambiguity_reason?: string;
+  clarified_rule_suggestion?: string;
+  is_clarified?: boolean;
+  sample_breakdowns: SampleRunBreakdown[];
+}
+
+export interface Test5x5Response {
+  rubric_id: string;
+  overall_stability: number;
+  benchmark_rating: string;
+  sample_count: number;
+  runs_per_sample: number;
+  criteria: CriterionConsistencyItem[];
+}
+
+/**
+ * 20. N x M 루브릭 일관성 & 결정론 검증 테스트 (기본 5x5)
+ */
+export async function run5x5ConsistencyTest(payload: {
+  batch_id: string;
+  rubric_id: string;
+  sample_count?: number;
+  runs_per_sample?: number;
+}): Promise<Test5x5Response> {
+  const res = await fetch(`${API_BASE_URL}/rubrics/test-5x5`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      batch_id: payload.batch_id,
+      rubric_id: payload.rubric_id,
+      sample_count: payload.sample_count ?? 5,
+      runs_per_sample: payload.runs_per_sample ?? 5,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`5x5 Validation failed (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * 21. 모호한 루브릭 기준을 제안된 구체적 규칙으로 확정/갱신
+ */
+export async function clarifyCriterionRule(
+  criterionId: string,
+  clarifiedRule: string
+): Promise<GenericApiResponse<RubricCriterionItem>> {
+  const res = await fetch(`${API_BASE_URL}/rubrics/criteria/${criterionId}/clarify`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clarified_rule: clarifiedRule }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Clarifying criterion rule failed (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}

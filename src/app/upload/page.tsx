@@ -13,6 +13,7 @@ import {
   FileText,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   HelpCircle,
   Sparkles,
   ArrowRight,
@@ -102,17 +103,34 @@ function UploadContent() {
   const [rubricInputTab, setRubricInputTab] = useState<'paste' | 'upload' | 'pdf'>('paste');
   const [assignmentTitle, setAssignmentTitle] = useState('');
   const [rubricText, setRubricText] = useState('');
+  const [currentRubricId, setCurrentRubricId] = useState<string>('');
   const [parsedCriteria, setParsedCriteria] = useState<RubricCriterionItem[]>([]);
   const [totalRubricPoints, setTotalRubricPoints] = useState<number>(0);
   const [isParsingRubric, setIsParsingRubric] = useState(false);
   const [is5x5ModalOpen, setIs5x5ModalOpen] = useState(false);
   const [isSubmittingGrading, setIsSubmittingGrading] = useState(false);
+  const [isRubricValidated, setIsRubricValidated] = useState<boolean>(false);
+  const [rubricDeterminismRate, setRubricDeterminismRate] = useState<number | null>(null);
+  const [showValidationWarningModal, setShowValidationWarningModal] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
   };
 
-  const handleStartGrading = async () => {
+  const handleStartGradingClick = () => {
+    if (parsedCriteria.length === 0) {
+      showToast('⚠️ 루브릭 세부 평가 체크리스트를 먼저 생성해주세요.');
+      return;
+    }
+    if (!isRubricValidated) {
+      // 루브릭 일관성 검증 미완료 시 경고 모달 표시
+      setShowValidationWarningModal(true);
+      return;
+    }
+    proceedWithGrading();
+  };
+
+  const proceedWithGrading = async () => {
     try {
       setIsSubmittingGrading(true);
       showToast('AI 채점 요청이 전송되었습니다');
@@ -227,15 +245,24 @@ function UploadContent() {
               if (rub && rub.criteria && rub.criteria.length > 0) {
                 setParsedCriteria(rub.criteria);
                 setTotalRubricPoints(rub.total_points || 0);
+                if (rub.id) setCurrentRubricId(rub.id);
                 if (rub.raw_text) setRubricText(rub.raw_text);
                 if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
+                setIsRubricValidated(Boolean(rub.is_validated && (rub.determinism_rate || 0) > 0));
+                setRubricDeterminismRate(rub.determinism_rate ? Math.round(rub.determinism_rate) : null);
               } else {
                 setParsedCriteria([]);
+                setCurrentRubricId('');
                 setTotalRubricPoints(0);
+                setIsRubricValidated(false);
+                setRubricDeterminismRate(null);
               }
             } catch {
               setParsedCriteria([]);
+              setCurrentRubricId('');
               setTotalRubricPoints(0);
+              setIsRubricValidated(false);
+              setRubricDeterminismRate(null);
             }
           } else {
             // Default to 'new' clean batch registration mode (no old files cluttering the view)
@@ -409,6 +436,11 @@ function UploadContent() {
 
       setParsedCriteria(res.criteria);
       setTotalRubricPoints(res.total_points || 100);
+      setIsRubricValidated(false);
+      setRubricDeterminismRate(null);
+      if (res.id) {
+        setCurrentRubricId(res.id);
+      }
       if (res.assignment_title) {
         setAssignmentTitle(res.assignment_title);
       }
@@ -495,14 +527,23 @@ function UploadContent() {
                               if (rub && rub.criteria && rub.criteria.length > 0) {
                                 setParsedCriteria(rub.criteria);
                                 setTotalRubricPoints(rub.total_points || 0);
+                                if (rub.id) setCurrentRubricId(rub.id);
                                 if (rub.raw_text) setRubricText(rub.raw_text);
+                                setIsRubricValidated(Boolean(rub.is_validated && (rub.determinism_rate || 0) > 0));
+                                setRubricDeterminismRate(rub.determinism_rate ? Math.round(rub.determinism_rate) : null);
                               } else {
                                 setParsedCriteria([]);
+                                setCurrentRubricId('');
                                 setTotalRubricPoints(0);
+                                setIsRubricValidated(false);
+                                setRubricDeterminismRate(null);
                               }
                             } catch {
                               setParsedCriteria([]);
+                              setCurrentRubricId('');
                               setTotalRubricPoints(0);
+                              setIsRubricValidated(false);
+                              setRubricDeterminismRate(null);
                             }
                           } catch (err) {
                             console.error(err);
@@ -749,7 +790,7 @@ function UploadContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleStartGrading}
+                  onClick={handleStartGradingClick}
                   disabled={isSubmittingGrading}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
                 >
@@ -1049,7 +1090,7 @@ function UploadContent() {
                     </span>
                     <button
                       type="button"
-                      onClick={handleStartGrading}
+                      onClick={handleStartGradingClick}
                       disabled={isSubmittingGrading}
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors disabled:opacity-60"
                     >
@@ -1073,9 +1114,15 @@ function UploadContent() {
                       <Sparkles className="w-4 h-4 text-emerald-600" />
                       <span>Rubric Consistency Health</span>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      96.2% Determinism
-                    </span>
+                    {isRubricValidated ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        {rubricDeterminismRate}% Determinism
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                        검증 미완료
+                      </span>
+                    )}
                   </div>
 
                   <div className="space-y-1.5 pt-1">
@@ -1102,8 +1149,80 @@ function UploadContent() {
       <Rubric5x5TestModal
         isOpen={is5x5ModalOpen}
         onClose={() => setIs5x5ModalOpen(false)}
-        onProceedToGrading={() => router.push('/grading')}
+        onProceedToGrading={proceedWithGrading}
+        batchId={selectedBatchId && selectedBatchId !== 'new' ? selectedBatchId : undefined}
+        rubricId={currentRubricId || undefined}
+        assignmentTitle={assignmentTitle}
+        onValidationComplete={(stability) => {
+          setIsRubricValidated(true);
+          setRubricDeterminismRate(stability);
+        }}
       />
+
+      {/* Warning Modal: Start Grading without Validation */}
+      {showValidationWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  루브릭 일관성 검증 미완료 경고
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  루브릭 일관성 검증(5&times;5 Test)을 아직 진행하지 않았습니다.
+                  검증을 거치지 않으면 루브릭 내 모호한 표현으로 인해 채점자(AI) 편차가 발생할 수 있습니다.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200/80 text-xs text-amber-800 space-y-1">
+              <div className="font-bold flex items-center gap-1.5">
+                <Scale className="w-4 h-4 text-amber-600" />
+                <span>권장 조치: 5&times;5 일관성 검증 먼저 실행</span>
+              </div>
+              <p className="text-[11px] text-amber-700 leading-normal">
+                5개 표본 과제에 대해 5회 반복 추론하여 판정 안정성을 사전에 진단하고 모호성을 확정할 수 있습니다.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowValidationWarningModal(false);
+                  setIs5x5ModalOpen(true);
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Scale className="w-4 h-4" />
+                <span>5&times;5 일관성 검증 먼저 실행 (권장)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowValidationWarningModal(false);
+                  proceedWithGrading();
+                }}
+                className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+              >
+                경고 무시하고 바로 채점 시작
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowValidationWarningModal(false)}
+                className="w-full py-1.5 text-center text-xs font-semibold text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: View Extracted/Parsed Text from Local Storage */}
       {parsedModalDetail && (
