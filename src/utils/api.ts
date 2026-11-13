@@ -237,6 +237,7 @@ export interface RubricDetailResponse {
   batch_id: string;
   assignment_title?: string;
   raw_text: string;
+  base_score?: number;
   is_validated: boolean;
   determinism_rate: number;
   total_points: number;
@@ -252,6 +253,7 @@ export async function parseRubricWithClaude(payload: {
   assignment_title?: string;
   course_code?: string;
   raw_rubric_text: string;
+  base_score?: number;
 }): Promise<RubricDetailResponse> {
   const res = await fetch(`${API_BASE_URL}/rubrics/parse`, {
     method: 'POST',
@@ -262,6 +264,30 @@ export async function parseRubricWithClaude(payload: {
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`Rubric parsing failed (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * 10-1. 사용자가 직접 편집/작성한 루브릭 체크리스트 수동 저장
+ */
+export async function saveManualRubric(payload: {
+  batch_id?: string;
+  assignment_title?: string;
+  raw_rubric_text?: string;
+  base_score?: number;
+  criteria: RubricCriterionItem[];
+}): Promise<RubricDetailResponse> {
+  const res = await fetch(`${API_BASE_URL}/rubrics/save-manual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Rubric save failed (${res.status}): ${errorText}`);
   }
 
   return res.json();

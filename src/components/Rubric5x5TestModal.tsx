@@ -615,10 +615,12 @@ export const Rubric5x5TestModal: React.FC<Rubric5x5TestModalProps> = ({
                                             className={`font-bold ${
                                               verdict === 'Met'
                                                 ? 'text-emerald-700'
+                                                : verdict === 'Partially Met'
+                                                ? 'text-amber-700'
                                                 : 'text-rose-700'
                                             }`}
                                           >
-                                            {verdict} ({sample.scores?.[rIdx] ?? 0}점)
+                                            {verdict} ({typeof sample.scores?.[rIdx] === 'number' && sample.scores[rIdx] % 1 !== 0 ? sample.scores[rIdx] : (sample.scores?.[rIdx] ?? 0)}점)
                                           </span>
                                         </div>
                                       ))}

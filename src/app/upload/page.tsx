@@ -35,6 +35,7 @@ import {
   X,
   Copy,
   Plus,
+  Save,
 } from 'lucide-react';
 import { TopHeader } from '@/components/TopHeader';
 import { StepProgressBar, GradingStep } from '@/components/StepProgressBar';
@@ -47,6 +48,7 @@ import {
   parseSinglePdf,
   fetchBatches,
   parseRubricWithClaude,
+  saveManualRubric,
   fetchRubricByBatch,
   BatchItem,
   SubmissionFileItem,
@@ -104,14 +106,16 @@ function UploadContent() {
   const [assignmentTitle, setAssignmentTitle] = useState('');
   const [rubricText, setRubricText] = useState('');
   const [currentRubricId, setCurrentRubricId] = useState<string>('');
+  const [baseScore, setBaseScore] = useState<number>(6.5);
   const [parsedCriteria, setParsedCriteria] = useState<RubricCriterionItem[]>([]);
-  const [totalRubricPoints, setTotalRubricPoints] = useState<number>(0);
+  const [totalRubricPoints, setTotalRubricPoints] = useState<number>(10.0);
   const [isParsingRubric, setIsParsingRubric] = useState(false);
   const [is5x5ModalOpen, setIs5x5ModalOpen] = useState(false);
   const [isSubmittingGrading, setIsSubmittingGrading] = useState(false);
   const [isRubricValidated, setIsRubricValidated] = useState<boolean>(false);
   const [rubricDeterminismRate, setRubricDeterminismRate] = useState<number | null>(null);
   const [showValidationWarningModal, setShowValidationWarningModal] = useState<boolean>(false);
+  const [isSavingRubric, setIsSavingRubric] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -152,6 +156,99 @@ function UploadContent() {
     }
   };
 
+  // LocalStorage Helper for Rubric & Title Persistence
+  const cacheCriteria = (items: RubricCriterionItem[]) => {
+    try {
+      if (typeof window !== 'undefined') {
+        const key = selectedBatchId || 'new';
+        localStorage.setItem(`taplus_criteria_draft_${key}`, JSON.stringify(items));
+        localStorage.setItem('taplus_criteria_draft_latest', JSON.stringify(items));
+      }
+    } catch {}
+  };
+
+  const handleRubricTextChange = (text: string) => {
+    setRubricText(text);
+    try {
+      if (typeof window !== 'undefined') {
+        const key = selectedBatchId || 'new';
+        localStorage.setItem(`taplus_rubric_draft_${key}`, text);
+        localStorage.setItem('taplus_rubric_draft_latest', text);
+      }
+    } catch {}
+  };
+
+  const handleAssignmentTitleChange = (title: string) => {
+    setAssignmentTitle(title);
+    try {
+      if (typeof window !== 'undefined') {
+        const key = selectedBatchId || 'new';
+        localStorage.setItem(`taplus_title_draft_${key}`, title);
+        localStorage.setItem('taplus_title_draft_latest', title);
+      }
+    } catch {}
+  };
+
+  const handleBaseScoreChange = (val: number) => {
+    const validVal = Math.max(0, Math.round(val * 10) / 10);
+    setBaseScore(validVal);
+    const criteriaSum = parsedCriteria.reduce(
+      (sum, item) => sum + (Number(item.max_score) || 0),
+      0
+    );
+    setTotalRubricPoints(Math.round((validVal + criteriaSum) * 10) / 10);
+  };
+
+  const handleSaveRubric = async () => {
+    if (parsedCriteria.length === 0 && !rubricText.trim()) {
+      showToast('⚠️ 저장할 루브릭 내용이나 체크리스트 항목이 없습니다.');
+      return;
+    }
+
+    try {
+      setIsSavingRubric(true);
+      const res = await saveManualRubric({
+        batch_id: selectedBatchId && selectedBatchId !== 'new' ? selectedBatchId : undefined,
+        assignment_title: assignmentTitle.trim() || undefined,
+        raw_rubric_text: rubricText,
+        base_score: baseScore,
+        criteria: parsedCriteria,
+      });
+
+      if (res.id) setCurrentRubricId(res.id);
+      if (typeof res.base_score === 'number') setBaseScore(res.base_score);
+      if (res.criteria && res.criteria.length > 0) setParsedCriteria(res.criteria);
+      if (res.total_points) setTotalRubricPoints(res.total_points);
+      if (res.assignment_title) setAssignmentTitle(res.assignment_title);
+
+      // LocalStorage draft synchronization
+      if (typeof window !== 'undefined') {
+        const key = selectedBatchId || 'new';
+        localStorage.setItem(`taplus_rubric_draft_${key}`, rubricText);
+        localStorage.setItem('taplus_rubric_draft_latest', rubricText);
+        if (assignmentTitle.trim()) {
+          localStorage.setItem(`taplus_title_draft_${key}`, assignmentTitle);
+          localStorage.setItem('taplus_title_draft_latest', assignmentTitle);
+        }
+        localStorage.setItem(`taplus_criteria_draft_${key}`, JSON.stringify(res.criteria));
+        localStorage.setItem('taplus_criteria_draft_latest', JSON.stringify(res.criteria));
+      }
+
+      // Batch list sync
+      const updatedBatches = await fetchBatches();
+      if (updatedBatches && updatedBatches.length > 0) {
+        setBatches(updatedBatches);
+      }
+
+      showToast('💾 루브릭 및 체크리스트가 성공적으로 저장되었습니다!');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`❌ 루브릭 저장 실패: ${msg}`);
+    } finally {
+      setIsSavingRubric(false);
+    }
+  };
+
   // Human editing handlers for AI-structured checklist
   const handleUpdateCriterion = (
     index: number,
@@ -166,8 +263,9 @@ function UploadContent() {
           (sum, item) => sum + (Number(item.max_score) || 0),
           0
         );
-        setTotalRubricPoints(newTotal);
+        setTotalRubricPoints(Math.round((baseScore + newTotal) * 10) / 10);
       }
+      cacheCriteria(updated);
       return updated;
     });
   };
@@ -184,7 +282,8 @@ function UploadContent() {
         (sum, item) => sum + (Number(item.max_score) || 0),
         0
       );
-      setTotalRubricPoints(newTotal);
+      setTotalRubricPoints(Math.round((baseScore + newTotal) * 10) / 10);
+      cacheCriteria(filtered);
       return filtered;
     });
   };
@@ -197,22 +296,29 @@ function UploadContent() {
         title: `평가 기준 ${newNum}`,
         description: '',
         category: '일반',
-        max_score: 5,
-        scoring_guideline: '5점(우수): 완벽 구현 | 3~4점(보통): 부분 구현 | 1~2점(미흡): 미완성/오류 | 0점: 미수행',
+        max_score: 0.5,
+        scoring_guideline: '0.5점: 기준 충족 | 0점: 미충족',
       };
       const updated = [...prev, newItem];
       const newTotal = updated.reduce(
         (sum, item) => sum + (Number(item.max_score) || 0),
         0
       );
-      setTotalRubricPoints(newTotal);
+      setTotalRubricPoints(Math.round((baseScore + newTotal) * 10) / 10);
+      cacheCriteria(updated);
       return updated;
     });
   };
 
   const handleClearCriteria = () => {
     setParsedCriteria([]);
-    setTotalRubricPoints(0);
+    setTotalRubricPoints(baseScore);
+    try {
+      if (typeof window !== 'undefined') {
+        const key = selectedBatchId || 'new';
+        localStorage.removeItem(`taplus_criteria_draft_${key}`);
+      }
+    } catch {}
   };
 
   // Load batches and current batch files from Backend on mount
@@ -244,13 +350,32 @@ function UploadContent() {
               const rub = await fetchRubricByBatch(batchParam);
               if (rub && rub.criteria && rub.criteria.length > 0) {
                 setParsedCriteria(rub.criteria);
-                setTotalRubricPoints(rub.total_points || 0);
+                if (typeof rub.base_score === 'number') {
+                  setBaseScore(rub.base_score);
+                }
+                setTotalRubricPoints(rub.total_points || 10.0);
                 if (rub.id) setCurrentRubricId(rub.id);
-                if (rub.raw_text) setRubricText(rub.raw_text);
-                if (rub.assignment_title) setAssignmentTitle(rub.assignment_title);
+                if (rub.raw_text) {
+                  setRubricText(rub.raw_text);
+                } else if (typeof window !== 'undefined') {
+                  const cachedRub = localStorage.getItem(`taplus_rubric_draft_${batchParam}`) || localStorage.getItem('taplus_rubric_draft_latest');
+                  if (cachedRub) setRubricText(cachedRub);
+                }
+                if (rub.assignment_title) {
+                  setAssignmentTitle(rub.assignment_title);
+                } else if (typeof window !== 'undefined') {
+                  const cachedTitle = localStorage.getItem(`taplus_title_draft_${batchParam}`) || localStorage.getItem('taplus_title_draft_latest');
+                  if (cachedTitle) setAssignmentTitle(cachedTitle);
+                }
                 setIsRubricValidated(Boolean(rub.is_validated && (rub.determinism_rate || 0) > 0));
                 setRubricDeterminismRate(rub.determinism_rate ? Math.round(rub.determinism_rate) : null);
               } else {
+                if (typeof window !== 'undefined') {
+                  const cachedRub = localStorage.getItem(`taplus_rubric_draft_${batchParam}`) || localStorage.getItem('taplus_rubric_draft_latest');
+                  if (cachedRub) setRubricText(cachedRub);
+                  const cachedTitle = localStorage.getItem(`taplus_title_draft_${batchParam}`) || localStorage.getItem('taplus_title_draft_latest');
+                  if (cachedTitle) setAssignmentTitle(cachedTitle);
+                }
                 setParsedCriteria([]);
                 setCurrentRubricId('');
                 setTotalRubricPoints(0);
@@ -258,6 +383,12 @@ function UploadContent() {
                 setRubricDeterminismRate(null);
               }
             } catch {
+              if (typeof window !== 'undefined') {
+                const cachedRub = localStorage.getItem(`taplus_rubric_draft_${batchParam}`) || localStorage.getItem('taplus_rubric_draft_latest');
+                if (cachedRub) setRubricText(cachedRub);
+                const cachedTitle = localStorage.getItem(`taplus_title_draft_${batchParam}`) || localStorage.getItem('taplus_title_draft_latest');
+                if (cachedTitle) setAssignmentTitle(cachedTitle);
+              }
               setParsedCriteria([]);
               setCurrentRubricId('');
               setTotalRubricPoints(0);
@@ -268,8 +399,15 @@ function UploadContent() {
             // Default to 'new' clean batch registration mode (no old files cluttering the view)
             setSelectedBatchId('new');
             setFiles([]);
-            setAssignmentTitle('');
-            setRubricText('');
+            if (typeof window !== 'undefined') {
+              const cachedRub = localStorage.getItem('taplus_rubric_draft_new') || localStorage.getItem('taplus_rubric_draft_latest') || '';
+              const cachedTitle = localStorage.getItem('taplus_title_draft_new') || localStorage.getItem('taplus_title_draft_latest') || '';
+              setRubricText(cachedRub);
+              setAssignmentTitle(cachedTitle);
+            } else {
+              setAssignmentTitle('');
+              setRubricText('');
+            }
             setParsedCriteria([]);
             setTotalRubricPoints(0);
           }
@@ -277,6 +415,12 @@ function UploadContent() {
           setBatches([]);
           setSelectedBatchId('new');
           setFiles([]);
+          if (typeof window !== 'undefined') {
+            const cachedRub = localStorage.getItem('taplus_rubric_draft_new') || localStorage.getItem('taplus_rubric_draft_latest') || '';
+            const cachedTitle = localStorage.getItem('taplus_title_draft_new') || localStorage.getItem('taplus_title_draft_latest') || '';
+            setRubricText(cachedRub);
+            setAssignmentTitle(cachedTitle);
+          }
           setParsedCriteria([]);
           setTotalRubricPoints(0);
         }
@@ -432,10 +576,14 @@ function UploadContent() {
         batch_id: selectedBatchId || undefined,
         assignment_title: assignmentTitle.trim() || undefined,
         raw_rubric_text: rubricText,
+        base_score: baseScore,
       });
 
       setParsedCriteria(res.criteria);
-      setTotalRubricPoints(res.total_points || 100);
+      if (typeof res.base_score === 'number') {
+        setBaseScore(res.base_score);
+      }
+      setTotalRubricPoints(res.total_points || 10.0);
       setIsRubricValidated(false);
       setRubricDeterminismRate(null);
       if (res.id) {
@@ -509,8 +657,15 @@ function UploadContent() {
                           setSelectedBatchId(newBId);
                           if (newBId === 'new') {
                             setFiles([]);
-                            setAssignmentTitle('');
-                            setRubricText('');
+                            if (typeof window !== 'undefined') {
+                              const cachedRub = localStorage.getItem('taplus_rubric_draft_new') || localStorage.getItem('taplus_rubric_draft_latest') || '';
+                              const cachedTitle = localStorage.getItem('taplus_title_draft_new') || localStorage.getItem('taplus_title_draft_latest') || '';
+                              setRubricText(cachedRub);
+                              setAssignmentTitle(cachedTitle);
+                            } else {
+                              setAssignmentTitle('');
+                              setRubricText('');
+                            }
                             setParsedCriteria([]);
                             setTotalRubricPoints(0);
                             router.replace('/upload');
@@ -528,10 +683,19 @@ function UploadContent() {
                                 setParsedCriteria(rub.criteria);
                                 setTotalRubricPoints(rub.total_points || 0);
                                 if (rub.id) setCurrentRubricId(rub.id);
-                                if (rub.raw_text) setRubricText(rub.raw_text);
+                                if (rub.raw_text) {
+                                  setRubricText(rub.raw_text);
+                                } else if (typeof window !== 'undefined') {
+                                  const cached = localStorage.getItem(`taplus_rubric_draft_${newBId}`) || localStorage.getItem('taplus_rubric_draft_latest');
+                                  if (cached) setRubricText(cached);
+                                }
                                 setIsRubricValidated(Boolean(rub.is_validated && (rub.determinism_rate || 0) > 0));
                                 setRubricDeterminismRate(rub.determinism_rate ? Math.round(rub.determinism_rate) : null);
                               } else {
+                                if (typeof window !== 'undefined') {
+                                  const cached = localStorage.getItem(`taplus_rubric_draft_${newBId}`) || localStorage.getItem('taplus_rubric_draft_latest');
+                                  if (cached) setRubricText(cached);
+                                }
                                 setParsedCriteria([]);
                                 setCurrentRubricId('');
                                 setTotalRubricPoints(0);
@@ -539,6 +703,10 @@ function UploadContent() {
                                 setRubricDeterminismRate(null);
                               }
                             } catch {
+                              if (typeof window !== 'undefined') {
+                                const cached = localStorage.getItem(`taplus_rubric_draft_${newBId}`) || localStorage.getItem('taplus_rubric_draft_latest');
+                                if (cached) setRubricText(cached);
+                              }
                               setParsedCriteria([]);
                               setCurrentRubricId('');
                               setTotalRubricPoints(0);
@@ -566,8 +734,15 @@ function UploadContent() {
                         onClick={() => {
                           setSelectedBatchId('new');
                           setFiles([]);
-                          setAssignmentTitle('');
-                          setRubricText('');
+                          if (typeof window !== 'undefined') {
+                            const cachedRub = localStorage.getItem('taplus_rubric_draft_new') || localStorage.getItem('taplus_rubric_draft_latest') || '';
+                            const cachedTitle = localStorage.getItem('taplus_title_draft_new') || localStorage.getItem('taplus_title_draft_latest') || '';
+                            setRubricText(cachedRub);
+                            setAssignmentTitle(cachedTitle);
+                          } else {
+                            setAssignmentTitle('');
+                            setRubricText('');
+                          }
                           setParsedCriteria([]);
                           setTotalRubricPoints(0);
                           router.replace('/upload');
@@ -780,13 +955,27 @@ function UploadContent() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 <button
                   onClick={() => setCurrentStep(1)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   <span>Back to Step 1</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRubric}
+                  disabled={isSavingRubric || (parsedCriteria.length === 0 && !rubricText.trim())}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs shadow-2xs transition-all disabled:opacity-50"
+                  title="현재 편집한 루브릭과 세부 체크리스트를 데이터베이스에 영구 저장합니다"
+                >
+                  {isSavingRubric ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5 text-emerald-600" />
+                  )}
+                  <span>루브릭 저장</span>
                 </button>
                 <button
                   type="button"
@@ -815,6 +1004,10 @@ function UploadContent() {
                     <h2 className="text-sm font-bold text-slate-900">
                       Instructor Rubric Input
                     </h2>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 font-medium bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      입력 내용 자동 유지됨
+                    </span>
                   </div>
 
                   {/* Assignment Title Input */}
@@ -825,7 +1018,7 @@ function UploadContent() {
                     <input
                       type="text"
                       value={assignmentTitle}
-                      onChange={(e) => setAssignmentTitle(e.target.value)}
+                      onChange={(e) => handleAssignmentTitleChange(e.target.value)}
                       placeholder="과제 제목을 입력하세요 (예: 데이터 분석 및 머신러닝 과제 1)"
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     />
@@ -873,7 +1066,7 @@ function UploadContent() {
                   <textarea
                     rows={14}
                     value={rubricText}
-                    onChange={(e) => setRubricText(e.target.value)}
+                    onChange={(e) => handleRubricTextChange(e.target.value)}
                     placeholder={`루브릭 채점 기준을 입력하거나 붙여넣으세요.\n\n예시:\n1. 데이터 전처리 및 탐색적 분석 (10점)\n- 결측치와 이상치를 적절히 처리하고 정규화 적용 (5점)\n- 특성 공학 및 상관관계 시각화 (5점)\n\n2. 머신러닝 모델 구현 (10점)\n- 문제에 적합한 2개 이상의 모델 비교 구현 (6점)\n- 교차 검증 및 하이퍼파라미터 튜닝 (4점)`}
                     className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 leading-relaxed focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none"
                   />
@@ -884,6 +1077,15 @@ function UploadContent() {
                     onClick={() => {
                       setRubricText('');
                       setAssignmentTitle('');
+                      try {
+                        if (typeof window !== 'undefined') {
+                          const key = selectedBatchId || 'new';
+                          localStorage.removeItem(`taplus_rubric_draft_${key}`);
+                          localStorage.removeItem(`taplus_title_draft_${key}`);
+                          localStorage.removeItem('taplus_rubric_draft_latest');
+                          localStorage.removeItem('taplus_title_draft_latest');
+                        }
+                      } catch {}
                     }}
                     className="text-xs text-slate-400 hover:text-rose-600 font-semibold transition-colors"
                   >
@@ -913,7 +1115,7 @@ function UploadContent() {
                         <span>AI-Structured Checklist</span>
                         {parsedCriteria.length > 0 && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
-                            {parsedCriteria.length}개 항목 &bull; 총 {totalRubricPoints}점
+                            기본 {baseScore}점 + 세부 {Math.round(parsedCriteria.reduce((acc, c) => acc + (Number(c.max_score) || 0), 0) * 10) / 10}점 = 총 {totalRubricPoints}점
                           </span>
                         )}
                       </h2>
@@ -940,6 +1142,54 @@ function UploadContent() {
                         <Plus className="w-3.5 h-3.5" />
                         <span>기준 추가</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveRubric}
+                        disabled={isSavingRubric || (parsedCriteria.length === 0 && !rubricText.trim())}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition-colors disabled:opacity-50 shadow-2xs"
+                        title="현재 작성/수정한 루브릭과 세부 체크리스트를 DB에 저장합니다"
+                      >
+                        {isSavingRubric ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5 text-emerald-600" />
+                        )}
+                        <span>루브릭 저장</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Base Score (기본 점수) Controller Bar */}
+                  <div className="flex items-center justify-between p-3 mb-3.5 rounded-xl bg-slate-50 border border-slate-200/90 shadow-2xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                        ★
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-800">기본 점수 (Base Score)</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                            시스템 자동 부여
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-medium">
+                          과제 제출자 전원에게 기본적으로 보장되는 점수입니다. (AI 평가 감점/가산 기준 외 고정값)
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="100"
+                          value={baseScore}
+                          onChange={(e) => handleBaseScoreChange(parseFloat(e.target.value) || 0)}
+                          className="w-16 px-2 py-1 text-xs font-bold text-center border border-slate-300 rounded-lg bg-white focus:outline-blue-500 focus:border-blue-500 shadow-2xs"
+                        />
+                        <span className="text-xs text-slate-600 font-bold">점</span>
+                      </div>
                     </div>
                   </div>
 
@@ -999,17 +1249,19 @@ function UploadContent() {
                                 <span className="text-[10px] font-bold text-blue-700">배점</span>
                                 <input
                                   type="number"
-                                  min={1}
+                                  step="0.5"
+                                  min={0.5}
                                   max={100}
                                   value={item.max_score}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
                                     handleUpdateCriterion(
                                       index,
                                       'max_score',
-                                      Math.max(1, parseInt(e.target.value) || 1)
-                                    )
-                                  }
-                                  className="w-10 text-center font-mono font-extrabold text-xs text-blue-900 bg-white border border-blue-300 rounded px-1 py-0.5 focus:outline-hidden"
+                                      isNaN(val) ? 0.5 : Math.max(0.5, val)
+                                    );
+                                  }}
+                                  className="w-12 text-center font-mono font-extrabold text-xs text-blue-900 bg-white border border-blue-300 rounded px-1 py-0.5 focus:outline-hidden"
                                 />
                                 <span className="text-[10px] font-bold text-blue-700">점</span>
                               </div>
@@ -1057,25 +1309,35 @@ function UploadContent() {
                           {/* Score Scale Chips */}
                           <div className="pt-0.5 flex items-center gap-1 flex-wrap">
                             <span className="text-[10px] font-bold text-slate-400 mr-1">점수 구간:</span>
-                            {Array.from({ length: Math.min(item.max_score + 1, 11) }, (_, i) => i).map((score) => (
-                              <span
-                                key={score}
-                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold font-mono ${
-                                  score === item.max_score
-                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                    : score === 0
-                                    ? 'bg-slate-200 text-slate-600'
-                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
-                                }`}
-                              >
-                                {score}점
-                              </span>
-                            ))}
-                            {item.max_score > 10 && (
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                ... +{item.max_score - 10}
-                              </span>
-                            )}
+                            {(() => {
+                              const hasHalf = (item.scoring_guideline && item.scoring_guideline.includes('0.5')) || item.max_score <= 2 || Number(item.max_score) % 1 !== 0;
+                              const step = hasHalf ? 0.5 : 1;
+                              const count = Math.min(Math.round(item.max_score / step) + 1, 15);
+                              const chips = Array.from({ length: count }, (_, i) => Math.round(i * step * 10) / 10);
+                              return (
+                                <>
+                                  {chips.map((score) => (
+                                    <span
+                                      key={score}
+                                      className={`px-1.5 py-0.2 rounded text-[10px] font-bold font-mono ${
+                                        score === item.max_score
+                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                          : score === 0
+                                          ? 'bg-slate-200 text-slate-600'
+                                          : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                      }`}
+                                    >
+                                      {score}점
+                                    </span>
+                                  ))}
+                                  {count > 14 && (
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      ...
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       ))}
@@ -1088,20 +1350,36 @@ function UploadContent() {
                     <span className="text-xs font-semibold text-slate-600">
                       총 {parsedCriteria.length}개 세부 평가 기준 준비 완료 (편집 내용 반영됨)
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleStartGradingClick}
-                      disabled={isSubmittingGrading}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors disabled:opacity-60"
-                    >
-                      {isSubmittingGrading ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-3.5 h-3.5 text-blue-200" />
-                      )}
-                      <span>{isSubmittingGrading ? 'AI 채점 요청 중...' : 'AI 채점 시작'}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveRubric}
+                        disabled={isSavingRubric}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-700 font-bold text-xs shadow-2xs transition-colors disabled:opacity-60"
+                        title="현재 편집한 체크리스트와 루브릭을 DB에 저장합니다"
+                      >
+                        {isSavingRubric ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5 text-emerald-600" />
+                        )}
+                        <span>루브릭 저장</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartGradingClick}
+                        disabled={isSubmittingGrading}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors disabled:opacity-60"
+                      >
+                        {isSubmittingGrading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5 text-blue-200" />
+                        )}
+                        <span>{isSubmittingGrading ? 'AI 채점 요청 중...' : 'AI 채점 시작'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
