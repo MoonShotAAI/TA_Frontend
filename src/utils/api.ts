@@ -358,6 +358,8 @@ export interface CriterionGradeItem {
   description: string;
   status: 'MET' | 'PARTIALLY_MET' | 'NOT_MET';
   assigned_score: number;
+  original_ai_score?: number;
+  score_delta?: number;
   max_score: number;
   evidence_quote: string;
   rationale: string;
@@ -372,6 +374,9 @@ export interface StudentGradingDetail {
   student_id: string;
   file_name: string;
   total_score: number;
+  original_ai_score?: number;
+  score_delta?: number;
+  is_overridden?: boolean;
   max_possible_score: number;
   confidence_level: 'HIGH' | 'LOW_TA_REVIEW' | string;
   confidence_percent: number;
@@ -433,10 +438,14 @@ export interface ConfidenceQueueItem {
   file_name: string;
   file_size: string;
   suggested_score: number;
+  original_ai_score?: number;
+  score_delta?: number;
+  is_overridden?: boolean;
+  ta_override_notes?: string;
   max_score: number;
   confidence: number;
   review_priority: 'High' | 'Medium' | 'Low';
-  status: 'AI Confident' | 'TA Review Needed' | 'Approved' | 'Pending Grading';
+  status: 'AI Confident' | 'TA Review Needed' | 'Approved' | 'Pending Grading' | 'TA Overridden';
   ai_explanation: string;
   cited_evidence_code: string;
   reasons_for_uncertainty: string[];
@@ -454,6 +463,7 @@ export interface ConfidenceQueueResponse {
   low_confidence_count: number;
   confident_count: number;
   approved_count: number;
+  overridden_count?: number;
   average_score: number;
   status: string;
   items: ConfidenceQueueItem[];

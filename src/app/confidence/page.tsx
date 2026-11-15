@@ -25,6 +25,7 @@ import {
   FolderOpen,
   RefreshCw,
   AlertCircle,
+  Edit3,
 } from 'lucide-react';
 import { TopHeader } from '@/components/TopHeader';
 import { StepProgressBar } from '@/components/StepProgressBar';
@@ -51,7 +52,7 @@ function ConfidenceQueueContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'all' | 'low_confidence' | 'confident' | 'approved'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'low_confidence' | 'confident' | 'approved' | 'overridden'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
@@ -135,7 +136,10 @@ function ConfidenceQueueContent() {
         return matchesSearch && item.status === 'AI Confident';
       }
       if (activeTab === 'approved') {
-        return matchesSearch && (item.status === 'Approved' || item.is_ta_reviewed);
+        return matchesSearch && (item.status === 'Approved' || (item.is_ta_reviewed && !item.is_overridden));
+      }
+      if (activeTab === 'overridden') {
+        return matchesSearch && (item.is_overridden || item.status === 'TA Overridden');
       }
       return matchesSearch;
     });
@@ -146,7 +150,8 @@ function ConfidenceQueueContent() {
 
   const lowConfidenceCount = allItems.filter((i) => i.status === 'TA Review Needed').length;
   const confidentCount = allItems.filter((i) => i.status === 'AI Confident').length;
-  const approvedCount = allItems.filter((i) => i.status === 'Approved' || i.is_ta_reviewed).length;
+  const approvedCount = allItems.filter((i) => i.status === 'Approved' || (i.is_ta_reviewed && !i.is_overridden)).length;
+  const overriddenCount = allItems.filter((i) => i.is_overridden || i.status === 'TA Overridden').length;
 
   // Selected index for chevron stepper
   const selectedIdx = allItems.findIndex((i) => i.id === selectedItem?.id);
@@ -303,8 +308,8 @@ function ConfidenceQueueContent() {
         {/* MAIN WORKSPACE */}
         {!isLoading && allItems.length > 0 && queueData && (
           <>
-            {/* 3 Metric Summary Cards matching screenshot 4 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 4 Metric Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Card 1: Graded Submissions */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
@@ -354,7 +359,25 @@ function ConfidenceQueueContent() {
                     confident &amp; approved
                   </div>
                   <div className="text-[11px] text-blue-700 font-medium">
-                    Ready for grade release ({approvedCount} approved)
+                    Ready for release ({approvedCount} approved)
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: TA Overridden (점수 수정 & 오채점 보정) */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <Edit3 className="w-6 h-6 stroke-[2.5]" />
+                </div>
+                <div>
+                  <div className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                    {overriddenCount}
+                  </div>
+                  <div className="text-xs font-bold text-slate-800 mt-0.5">
+                    TA Overridden
+                  </div>
+                  <div className="text-[11px] text-amber-800 font-medium">
+                    점수 수정 &middot; 오채점 보정 완료
                   </div>
                 </div>
               </div>
@@ -416,6 +439,18 @@ function ConfidenceQueueContent() {
                         <Check className="w-3.5 h-3.5 text-purple-500" />
                         <span>Approved ({approvedCount})</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('overridden')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                          activeTab === 'overridden'
+                            ? 'bg-amber-600 text-white shadow-2xs'
+                            : 'bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                        }`}
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-amber-500" />
+                        <span>점수 수정됨 ({overriddenCount})</span>
+                      </button>
                     </div>
 
                     {/* Search */}
@@ -469,8 +504,32 @@ function ConfidenceQueueContent() {
                               {item.file_name}
                             </td>
                             <td className="py-3 px-3 font-bold text-slate-900 whitespace-nowrap">
-                              {item.suggested_score}{' '}
-                              <span className="text-[11px] text-slate-700 font-medium">/ {item.max_score}</span>
+                              {item.is_overridden && item.original_ai_score !== undefined ? (
+                                <div className="flex flex-col">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-extrabold text-blue-700">{item.suggested_score}</span>
+                                    <span
+                                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                        (item.score_delta || 0) > 0
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : (item.score_delta || 0) < 0
+                                          ? 'bg-rose-100 text-rose-800'
+                                          : 'bg-slate-100 text-slate-700'
+                                      }`}
+                                    >
+                                      {(item.score_delta || 0) > 0 ? `+${item.score_delta}` : item.score_delta}점
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-500 font-mono">
+                                    AI 원점수: {item.original_ai_score}점
+                                  </span>
+                                </div>
+                              ) : (
+                                <>
+                                  {item.suggested_score}{' '}
+                                  <span className="text-[11px] text-slate-700 font-medium">/ {item.max_score}</span>
+                                </>
+                              )}
                             </td>
                             <td className="py-3 px-3 whitespace-nowrap">
                               <span
@@ -499,6 +558,12 @@ function ConfidenceQueueContent() {
                               </span>
                             </td>
                             <td className="py-3 px-3 whitespace-nowrap">
+                              {item.status === 'TA Overridden' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  <Edit3 className="w-3 h-3 text-amber-600" />
+                                  TA Overridden
+                                </span>
+                              )}
                               {item.status === 'Approved' && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
                                   <Check className="w-3 h-3 text-purple-600" />
@@ -596,6 +661,12 @@ function ConfidenceQueueContent() {
                     </div>
 
                     <div>
+                      {selectedItem.status === 'TA Overridden' && (
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1">
+                          <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                          TA Overridden (점수 수정됨)
+                        </span>
+                      )}
                       {selectedItem.status === 'Approved' && (
                         <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
                           Approved
@@ -659,6 +730,52 @@ function ConfidenceQueueContent() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Before vs After TA Override Comparison Card */}
+                  {selectedItem.is_overridden && (
+                    <div className="p-4 rounded-xl border border-amber-300 bg-amber-50/90 shadow-2xs space-y-3">
+                      <div className="text-xs font-bold text-amber-950 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Edit3 className="w-4 h-4 text-amber-700" />
+                          <span>조교 점수 수정 내역 (Before vs After)</span>
+                        </span>
+                        <span
+                          className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                            (selectedItem.score_delta || 0) > 0
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : (selectedItem.score_delta || 0) < 0
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-slate-200 text-slate-800'
+                          }`}
+                        >
+                          변동폭: {(selectedItem.score_delta || 0) > 0 ? `+${selectedItem.score_delta}` : selectedItem.score_delta}점
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 bg-white/90 p-3 rounded-lg border border-amber-200">
+                        <div className="flex-1 text-center border-r border-slate-100 pr-2">
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold block">AI 원점수</span>
+                          <span className="text-sm font-bold text-slate-500 line-through">
+                            {selectedItem.original_ai_score !== undefined ? `${selectedItem.original_ai_score}점` : '-'}
+                          </span>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-amber-600 shrink-0" />
+                        <div className="flex-1 text-center pl-2">
+                          <span className="text-[10px] text-blue-600 uppercase font-bold block">조교 확정점수</span>
+                          <span className="text-base font-extrabold text-blue-700">
+                            {selectedItem.suggested_score}점
+                          </span>
+                        </div>
+                      </div>
+
+                      {selectedItem.ta_override_notes && (
+                        <div className="text-xs text-amber-950 bg-amber-100/70 p-2.5 rounded-lg border border-amber-200/80">
+                          <span className="font-bold block mb-1 text-[11px] text-amber-900">📝 조교 점수 수정 사유:</span>
+                          <p className="whitespace-pre-wrap leading-relaxed font-medium">{selectedItem.ta_override_notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* AI Explanation */}
                   <div className="space-y-1.5">

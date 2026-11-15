@@ -338,11 +338,11 @@ function GradingContent() {
 
     try {
       setIsSaving(true);
-      // 1. Update criterion scores & TA notes
+      // 1. Update criterion scores & TA notes (preserve decimals, e.g. 0.5)
       const updatePromises = criteria.map((crit) =>
         updateCriterionScore(gradingDetail.id, crit.criterion_id, {
           status: crit.status,
-          assigned_score: Math.round(crit.assigned_score),
+          assigned_score: Math.round(crit.assigned_score * 100) / 100,
           ta_notes: crit.ta_notes || '',
         })
       );
@@ -565,6 +565,13 @@ function GradingContent() {
                     <span className="text-xs text-slate-700 font-bold">/ {maxPossibleScore}</span>
                     <span className="text-[11px] font-semibold text-slate-500 font-sans">({Math.round(scorePercent)}%)</span>
                   </div>
+                  {gradingDetail && gradingDetail.original_ai_score !== undefined && gradingDetail.original_ai_score !== null && gradingDetail.original_ai_score !== currentTotalScore && (
+                    <div className="text-[10px] text-amber-700 font-bold font-mono mt-0.5 flex items-center gap-1">
+                      <span className="line-through text-slate-400">AI: {gradingDetail.original_ai_score}점</span>
+                      <span>➔</span>
+                      <span>변동: {currentTotalScore - gradingDetail.original_ai_score > 0 ? `+${currentTotalScore - gradingDetail.original_ai_score}` : currentTotalScore - gradingDetail.original_ai_score}점</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Prominent Human TA Review Status Badge */}
@@ -947,19 +954,28 @@ function GradingContent() {
                           onClick={(e) => e.stopPropagation()}
                           className="flex items-center gap-1.5 shrink-0 select-text"
                         >
-                          {item.is_custom_adjusted && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
-                              TA
+                          {item.original_ai_score !== undefined && item.original_ai_score !== null && item.original_ai_score !== item.assigned_score ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                              <span className="line-through text-slate-400">AI {item.original_ai_score}</span>
+                              <span className="text-amber-600 font-extrabold">&rarr;</span>
+                              <span className="font-extrabold text-blue-700">{item.assigned_score}점</span>
+                              <span className={(item.assigned_score - item.original_ai_score) > 0 ? 'text-emerald-700 font-extrabold' : 'text-rose-700 font-extrabold'}>
+                                ({(item.assigned_score - item.original_ai_score) > 0 ? `+${item.assigned_score - item.original_ai_score}` : (item.assigned_score - item.original_ai_score)})
+                              </span>
                             </span>
-                          )}
+                          ) : item.is_custom_adjusted ? (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                              TA 수정
+                            </span>
+                          ) : null}
 
                           <div className="flex items-center bg-slate-100 hover:bg-white border border-slate-200/90 rounded-xl p-1 shadow-2xs transition-colors">
                             <button
                               type="button"
-                              onClick={() => handleScoreChange(item.criterion_id, item.assigned_score - 1)}
+                              onClick={() => handleScoreChange(item.criterion_id, item.assigned_score - (item.max_score <= 1 ? 0.5 : 1))}
                               disabled={item.assigned_score <= 0}
                               className="w-5 h-5 rounded-md bg-white hover:bg-slate-200 text-slate-700 font-extrabold flex items-center justify-center text-xs border border-slate-200 disabled:opacity-30 shadow-2xs"
-                              title="1점 감점"
+                              title={`${item.max_score <= 1 ? '0.5' : '1'}점 감점`}
                             >
                               -
                             </button>
@@ -969,6 +985,7 @@ function GradingContent() {
                                 type="number"
                                 min={0}
                                 max={item.max_score}
+                                step={item.max_score <= 1 ? 0.1 : 0.5}
                                 value={item.assigned_score}
                                 onChange={(e) =>
                                   handleScoreChange(item.criterion_id, Number(e.target.value))
@@ -983,10 +1000,10 @@ function GradingContent() {
 
                             <button
                               type="button"
-                              onClick={() => handleScoreChange(item.criterion_id, item.assigned_score + 1)}
+                              onClick={() => handleScoreChange(item.criterion_id, item.assigned_score + (item.max_score <= 1 ? 0.5 : 1))}
                               disabled={item.assigned_score >= item.max_score}
                               className="w-5 h-5 rounded-md bg-white hover:bg-slate-200 text-slate-700 font-extrabold flex items-center justify-center text-xs border border-slate-200 disabled:opacity-30 shadow-2xs"
-                              title="1점 증점"
+                              title={`${item.max_score <= 1 ? '0.5' : '1'}점 증점`}
                             >
                               +
                             </button>
@@ -1068,6 +1085,7 @@ function GradingContent() {
                               type="range"
                               min={0}
                               max={item.max_score}
+                              step={item.max_score <= 1 ? 0.1 : 0.5}
                               value={item.assigned_score}
                               onChange={(e) =>
                                 handleScoreChange(item.criterion_id, Number(e.target.value))
