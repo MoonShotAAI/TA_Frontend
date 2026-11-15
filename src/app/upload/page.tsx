@@ -641,7 +641,7 @@ function UploadContent() {
                         Step 1. Upload ZIP from LMS
                       </h1>
                       <p className="text-xs text-slate-700 font-medium mt-0.5">
-                        Upload LMS assignment ZIP &mdash; backend will asynchronously extract and parse PDFs to local disk
+                        Upload LMS assignment ZIP &mdash; backend extracts and parses PDF, DOCX, IPYNB, PY, TXT to local disk
                       </p>
                     </div>
                   </div>
@@ -813,7 +813,7 @@ function UploadContent() {
                   </div>
 
                   <p className="text-[11px] text-slate-600 mt-4 font-medium">
-                    ⚡ LMS ZIP 내의 과제 파일(PDF, DOCX 등)을 자동으로 추출하여 경량화 파싱합니다.
+                    ⚡ LMS ZIP 내의 과제 파일(PDF, DOCX, TXT, PY, IPYNB 등)을 자동으로 추출하여 경량화 파싱합니다.
                   </p>
                 </div>
               </div>

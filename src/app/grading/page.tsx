@@ -763,6 +763,17 @@ function GradingContent() {
                           );
                         }
 
+                        // Code block rendering in preview
+                        if (trimmedPara.startsWith('```')) {
+                          return (
+                            <div key={pIdx} className="my-2">
+                              <pre className="p-3.5 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs overflow-x-auto whitespace-pre-wrap border border-slate-800 leading-relaxed">
+                                <code>{trimmedPara.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '')}</code>
+                              </pre>
+                            </div>
+                          );
+                        }
+
                         // Check if it looks like a section header (e.g. 1. 2. 3. or # or 제목)
                         const isHeading =
                           trimmedPara.startsWith('#') ||
